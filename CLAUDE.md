@@ -120,4 +120,4 @@
 > 本區由各專案自行維護：寫這個專案的 Unity 版本、MCP 現況、目錄慣例、特殊限制。
 > `install.py --force-claude` 更新範本時**會原樣保留這一區**（靠上面那行 `PROJECT-SPECIFIC` 標記辨識，別刪它）。
 
-（尚未填寫）
+- Sweep 展演版驗證順序：`Tools\test-demo.ps1` → `Tools\build-windows.ps1` → `Tools\smoke-player.ps1`。最後一個腳本成功時必須輸出 `SWEEP_SMOKE_OK`；固定種子掛機基準為 16 分，低於 C 的 60 分門檻。

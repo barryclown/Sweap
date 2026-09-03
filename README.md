@@ -41,6 +41,7 @@ python C:\Users\barry\Desktop\claude\unity-template\unity_auto.py verify --expec
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\Tools\test-demo.ps1
 powershell -ExecutionPolicy Bypass -File .\Tools\build-windows.ps1
+powershell -ExecutionPolicy Bypass -File .\Tools\smoke-player.ps1
 ```
 
 也可以直接從 Unity 選：
@@ -48,7 +49,7 @@ powershell -ExecutionPolicy Bypass -File .\Tools\build-windows.ps1
 - `Tools > Sweep Demo > Run Preflight`
 - `Tools > Sweep Demo > Build Windows`
 
-預設輸出是 `Builds\Windows\DragameDemo.exe`，建置／測試日誌在 `Logs\`。腳本偵測到同一專案已開啟時會明確停止，不會強制關閉 Editor。
+預設輸出是 `Builds\Windows\DragameDemo.exe`，建置／測試日誌在 `Logs\`。`smoke-player.ps1` 會以固定亂數種子、不開視窗地加速跑完一局，並輸出掛機分數／評級；2026-09-04 的基準結果是 `score=16, grade=None`，低於 C 的 60 分門檻。腳本偵測到同一專案已開啟時會明確停止，不會強制關閉 Editor。
 
 ## 重要程式位置
 
@@ -59,3 +60,4 @@ powershell -ExecutionPolicy Bypass -File .\Tools\build-windows.ps1
 - `Assets/barry/Sweep/Script/UI/DemoFeedbackOverlay.cs`：執行期展演 HUD，不要求手改 Scene。
 - `Assets/Editor/SweepDemoBuild.cs`：Preflight、快速重置與 Windows Build。
 - `Assets/Tests/Editor/SweepDemoIntegrityTests.cs`：最小冒煙測試。
+- `Tools/smoke-player.ps1`：正式 Windows Player 的無畫面整局冒煙測試。

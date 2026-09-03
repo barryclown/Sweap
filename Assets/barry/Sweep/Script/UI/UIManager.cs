@@ -5,6 +5,7 @@ using UnityEngine.Rendering;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 using System.Collections;
+using System;
 
 public class UIManager : MonoBehaviour
 {
@@ -115,6 +116,30 @@ public class UIManager : MonoBehaviour
     private DemoFeedbackOverlay _demoOverlay;
 
     private const string DemoHintsSeenKey = "Dragame.Sweep.DemoHintsSeen.v1";
+    private const string AutomatedSmokeArgument = "-sweepDemoSmoke";
+    private static readonly bool IsAutomatedSmokeRun = HasCommandLineArgument(AutomatedSmokeArgument);
+
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
+    private static void BootstrapAutomatedSmokeRun()
+    {
+        if (!IsAutomatedSmokeRun) return;
+
+        UnityEngine.Random.InitState(20260904);
+        if (!string.Equals(SceneManager.GetActiveScene().name, "Sweep", StringComparison.Ordinal))
+        {
+            SceneManager.LoadScene("Sweep");
+        }
+    }
+
+    private static bool HasCommandLineArgument(string expected)
+    {
+        string[] arguments = Environment.GetCommandLineArgs();
+        for (int i = 0; i < arguments.Length; i++)
+        {
+            if (string.Equals(arguments[i], expected, StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return false;
+    }
 
     public static float ClampExhibitionDuration(float seconds)
     {
@@ -231,7 +256,12 @@ public class UIManager : MonoBehaviour
 
         // 首次教學改成不打斷操作的短提示；完整圖文仍可從暫停選單開啟。
         SetGameState(true);
-        if (PlayerPrefs.GetInt(DemoHintsSeenKey, 0) == 0)
+        if (IsAutomatedSmokeRun)
+        {
+            // 測試以遊戲時間完整跑 60 秒，但不必真的等待一分鐘。
+            Time.timeScale = 8f;
+        }
+        else if (PlayerPrefs.GetInt(DemoHintsSeenKey, 0) == 0)
         {
             StartCoroutine(ShowFirstRunHints());
         }
@@ -611,6 +641,7 @@ public class UIManager : MonoBehaviour
 
         if (endScoreText != null) endScoreText.text = currentScore.ToString();
 
+        string finalGradeName = "None";
         if (endGradeImage != null && gradeSettings != null && gradeSettings.Length > 0)
         {
             Sprite finalGrade = null;
@@ -626,7 +657,11 @@ public class UIManager : MonoBehaviour
             }
 
             endGradeImage.gameObject.SetActive(finalGrade != null);
-            if (finalGrade != null) endGradeImage.sprite = finalGrade;
+            if (finalGrade != null)
+            {
+                endGradeImage.sprite = finalGrade;
+                finalGradeName = finalGrade.name;
+            }
         }
 
         if (endPanel != null)
@@ -635,6 +670,14 @@ public class UIManager : MonoBehaviour
             endPanel.transform.SetAsLastSibling();
         }
         SetGameState(false);
+
+        if (IsAutomatedSmokeRun)
+        {
+            Debug.Log(
+                $"[SweepDemoSmoke] SWEEP_SMOKE_OK score={currentScore} grade={finalGradeName} " +
+                $"duration={_activeGameDuration:0} reason={reason}");
+            Application.Quit(0);
+        }
     }
 
     private void OnRestartGame()

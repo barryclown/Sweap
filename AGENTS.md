@@ -7,4 +7,5 @@
 - 共用自動化入口：`python C:\Users\barry\Desktop\claude\unity-template\unity_auto.py prep|open|new|verify`。`open`／`new` 可能搶前景；Barry 正在使用電腦時先問，只執行 `prep` 不需要問。
 - 冒煙測試：`powershell -ExecutionPolicy Bypass -File .\Tools\test-demo.ps1`。
 - Windows 建置：`powershell -ExecutionPolicy Bypass -File .\Tools\build-windows.ps1`。
+- Player 整局冒煙：建置後跑 `powershell -ExecutionPolicy Bypass -File .\Tools\smoke-player.ps1`；成功必須出現 `SWEEP_SMOKE_OK`，目前固定種子掛機基準是 16 分、低於 C 門檻。
 - 同一專案已在 Unity 開啟時，不啟第二個 batchmode Editor；正常關閉後才測試／建置，也不要強殺可能含未存 Scene 的 Editor。
