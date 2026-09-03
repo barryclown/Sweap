@@ -40,3 +40,22 @@ ExportedObj/
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# === Claude/Unity：編譯與暫存目錄（標準 Unity .gitignore 通常已含；此處確保有） ===
+# 注意：這裡只放「快取/暫存目錄」。
+# 「AI 不要讀素材檔(*.png/*.mat/*.anim...)」是用 .claude/settings.json 的 permissions.deny 處理，
+# 不放進 .gitignore——那些是 Unity 正規素材，必須被 git 追蹤，誤忽略會掉素材。
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Bb]uild/
+/[Bb]uilds/
+/[Ll]ogs/
+/[Uu]ser[Ss]ettings/
+/[Mm]emoryCaptures/
+/[Rr]ecordings/
+
+# IDE / Unity generated solution files
+/.vscode/
+*.csproj
+*.slnx

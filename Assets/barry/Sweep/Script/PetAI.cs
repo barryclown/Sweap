@@ -263,10 +263,7 @@ public class PetAI : MonoBehaviour
                 if (trash.IsAbsorbing || !CanEat(trash)) continue;
 
                 Vector2 dir = ((Vector2)transform.position - (Vector2)trash.transform.position).normalized;
-                if (trash.TryGetComponent<Rigidbody2D>(out var trashRb))
-                {
-                    trashRb.AddForce(dir * suckForce);
-                }
+                trash.ApplyExternalForce(dir * suckForce);
 
                 // [重點註釋] 已移除此處直接呼叫 EatTrash 的邏輯，改由 BlackHoleObstacle 的 Trigger 統一接管吸入瞬間
             }
@@ -339,10 +336,7 @@ public class PetAI : MonoBehaviour
                 {
                     hasSpawnedVomit = true;
                     vomitObj.ResetState();
-                    if (vomitObj.TryGetComponent<Rigidbody2D>(out var rb))
-                    {
-                        rb.AddForce(Random.insideUnitCircle.normalized * vomitForce, ForceMode2D.Impulse);
-                    }
+                    vomitObj.ApplyExternalImpulse(Random.insideUnitCircle.normalized * vomitForce);
                 }
             }
 

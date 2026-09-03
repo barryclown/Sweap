@@ -39,7 +39,15 @@ public class UIManager : MonoBehaviour
 
     [Header("=== 倒數計時 UI ===")]
     [SerializeField] private TMP_Text timerText;
-    [SerializeField, Min(1f)] private float gameDuration = 90f;
+    [SerializeField, Min(1f), Tooltip("展演模式會將舊場景的 90 秒設定限制在 45～60 秒")]
+    private float gameDuration = 60f;
+
+    [Header("=== 展演模式節奏 ===")]
+    [SerializeField, Min(0.5f)] private float comboWindow = 2.6f;
+    [SerializeField, Range(0f, 0.5f)] private float comboBonusPerStep = 0.1f;
+    [SerializeField, Min(1)] private int maxCombo = 15;
+    [SerializeField, Min(1f)] private float frenzyDuration = 10f;
+    [SerializeField, Min(1f)] private float frenzyScoreMultiplier = 1.5f;
 
     [Header("=== 技能圖示 UI ===")]
     [SerializeField] private Image skill1Icon;
@@ -80,6 +88,7 @@ public class UIManager : MonoBehaviour
 
     [Header("=== 輸入綁定 ===")]
     [SerializeField] private InputAction pauseAction = new InputAction("Pause", binding: "<Keyboard>/escape");
+    [SerializeField] private InputAction quickRestartAction = new InputAction("Quick Restart", binding: "<Keyboard>/r");
 
     private bool isPaused;
     private bool isTeaching;
@@ -89,6 +98,13 @@ public class UIManager : MonoBehaviour
     private int currentScore;
     private int currentTeachIndex;
     private bool blockInputThisFrame = false;
+    private float _activeGameDuration;
+    private int _comboCount;
+    private float _comboExpiresAt = float.NegativeInfinity;
+    private int _hitChainCount;
+    private float _hitChainExpiresAt = float.NegativeInfinity;
+    private int _demoPhase;
+    private bool _isFrenzy;
 
     private Image _teachImage;
     private Vector3 _originalScoreScale;
@@ -96,6 +112,24 @@ public class UIManager : MonoBehaviour
     private Coroutine _scorePunchRoutine;
     private Coroutine _cursorPunchRoutine;
     private PlayerController _cachedPlayerController;
+    private DemoFeedbackOverlay _demoOverlay;
+
+    private const string DemoHintsSeenKey = "Dragame.Sweep.DemoHintsSeen.v1";
+
+    public static float ClampExhibitionDuration(float seconds)
+    {
+        return Mathf.Clamp(seconds, 45f, 60f);
+    }
+
+    public static float CalculateComboMultiplier(
+        int comboCount,
+        float bonusPerStep,
+        bool frenzy,
+        float frenzyMultiplier)
+    {
+        float multiplier = 1f + ((Mathf.Max(1, comboCount) - 1) * Mathf.Max(0f, bonusPerStep));
+        return frenzy ? multiplier * Mathf.Max(1f, frenzyMultiplier) : multiplier;
+    }
 
     private void Awake()
     {
@@ -111,7 +145,7 @@ public class UIManager : MonoBehaviour
     private void OnEnable()
     {
         TrashCounter.Changed += OnTrashCounterChanged;
-        BlackHoleObstacle.OnTrashAbsorbedScore += AddScore;
+        BlackHoleObstacle.OnTrashAbsorbedScore += OnTrashAbsorbedScore;
         PetAI.OnVomitPenalty += AddScore;
         PetAI.OnPetLevelChanged += UpdateBlackHoleLevelUI;
 
@@ -122,14 +156,16 @@ public class UIManager : MonoBehaviour
         endRestartButton?.onClick.AddListener(OnRestartGame);
         endToStartButton?.onClick.AddListener(OnReturnToStartMenu);
 
-        pauseAction.Enable();
         pauseAction.performed += OnPauseActionTriggered;
+        pauseAction.Enable();
+        quickRestartAction.performed += OnQuickRestartTriggered;
+        quickRestartAction.Enable();
     }
 
     private void OnDisable()
     {
         TrashCounter.Changed -= OnTrashCounterChanged;
-        BlackHoleObstacle.OnTrashAbsorbedScore -= AddScore;
+        BlackHoleObstacle.OnTrashAbsorbedScore -= OnTrashAbsorbedScore;
         PetAI.OnVomitPenalty -= AddScore;
         PetAI.OnPetLevelChanged -= UpdateBlackHoleLevelUI;
 
@@ -140,7 +176,10 @@ public class UIManager : MonoBehaviour
         endRestartButton?.onClick.RemoveListener(OnRestartGame);
         endToStartButton?.onClick.RemoveListener(OnReturnToStartMenu);
 
+        pauseAction.performed -= OnPauseActionTriggered;
         pauseAction.Disable();
+        quickRestartAction.performed -= OnQuickRestartTriggered;
+        quickRestartAction.Disable();
     }
 
     private void Start()
@@ -155,8 +194,13 @@ public class UIManager : MonoBehaviour
 
         isGameOver = false;
         isPaused = false;
-        remainingTime = gameDuration;
+        // 舊 Scene 序列化的是 90 秒；展演版直接收斂到 45～60 秒。
+        _activeGameDuration = ClampExhibitionDuration(gameDuration);
+        remainingTime = _activeGameDuration;
         currentScore = 0;
+        _comboCount = 0;
+        _demoPhase = 0;
+        _isFrenzy = false;
 
         if (scoreText != null)
         {
@@ -168,21 +212,29 @@ public class UIManager : MonoBehaviour
         pausePanel?.SetActive(false);
         endPanel?.SetActive(false);
 
-        OpenTeachPanel();
         UpdateTimerText();
         RefreshTrash(TrashCounter.Collected, TrashCounter.Total);
+        _demoOverlay = DemoFeedbackOverlay.Attach(this, scoreText != null ? scoreText : timerText);
 
         _cachedPlayerController = PlayerController.instance;
         if (_cachedPlayerController != null)
         {
             _cachedPlayerController.OnModeChanged += OnSkillModeChanged;
             _cachedPlayerController.OnRightSkillCooldownUpdate += UpdateRightSkillCooldownUI;
+            _cachedPlayerController.OnTrashHitEvent += OnTrashHit;
+            _cachedPlayerController.OnChargedSweepReleased += OnChargedSweepReleased;
 
             OnSkillModeChanged(_cachedPlayerController.currentMode);
             UpdateRightSkillCooldownUI(0f, 1f);
+            _cachedPlayerController.SetDemoIntensity(0, false);
         }
 
-        SetGameState(false);
+        // 首次教學改成不打斷操作的短提示；完整圖文仍可從暫停選單開啟。
+        SetGameState(true);
+        if (PlayerPrefs.GetInt(DemoHintsSeenKey, 0) == 0)
+        {
+            StartCoroutine(ShowFirstRunHints());
+        }
     }
 
     private void Update()
@@ -204,6 +256,12 @@ public class UIManager : MonoBehaviour
 
         if (blockInputThisFrame) blockInputThisFrame = false;
 
+        if (_comboCount > 0 && Time.unscaledTime > _comboExpiresAt)
+        {
+            _comboCount = 0;
+            _demoOverlay?.HideCombo();
+        }
+
         if (isPaused || isTeaching || isGameOver) return;
 
         remainingTime -= Time.deltaTime;
@@ -214,6 +272,7 @@ public class UIManager : MonoBehaviour
             GameOver("時間耗盡");
             return;
         }
+        UpdateDemoPacing();
         UpdateTimerText();
     }
 
@@ -252,10 +311,32 @@ public class UIManager : MonoBehaviour
         _cursorPunchRoutine = null;
     }
 
+    private void OnTrashAbsorbedScore(int baseScore, bool playerAssisted, Vector2 worldPosition)
+    {
+        int awardedScore = baseScore;
+
+        if (playerAssisted)
+        {
+            _comboCount = Time.unscaledTime <= _comboExpiresAt
+                ? Mathf.Min(_comboCount + 1, maxCombo)
+                : 1;
+            _comboExpiresAt = Time.unscaledTime + comboWindow;
+
+            float comboMultiplier = CalculateComboMultiplier(
+                _comboCount, comboBonusPerStep, _isFrenzy, frenzyScoreMultiplier);
+            awardedScore = Mathf.RoundToInt(baseScore * comboMultiplier);
+            _demoOverlay?.ShowCombo(_comboCount, comboMultiplier);
+        }
+
+        AddScore(awardedScore);
+        DemoWorldBurst.Play(worldPosition, playerAssisted);
+        _demoOverlay?.ShowScoreBurst(awardedScore, playerAssisted, _comboCount, worldPosition);
+    }
+
     private void AddScore(int scoreToAdd)
     {
-        currentScore += scoreToAdd;
-        UpdateScoreText(true);
+        currentScore = Mathf.Max(0, currentScore + scoreToAdd);
+        UpdateScoreText(scoreToAdd != 0);
     }
 
     private void UpdateScoreText(bool playAnimation)
@@ -323,6 +404,53 @@ public class UIManager : MonoBehaviour
 
         lastDisplaySeconds = displaySeconds;
         timerText.text = $"{(displaySeconds / 60):00}:{(displaySeconds % 60):00}";
+        timerText.color = _isFrenzy ? new Color(1f, 0.25f, 0.08f) : Color.white;
+    }
+
+    private void UpdateDemoPacing()
+    {
+        int targetPhase = Mathf.Clamp(Mathf.FloorToInt((_activeGameDuration - remainingTime) / 15f), 0, 3);
+        if (targetPhase > _demoPhase)
+        {
+            _demoPhase = targetPhase;
+            _cachedPlayerController?.SetDemoIntensity(_demoPhase, _isFrenzy);
+            string message = _demoPhase == 1 ? "HEAT UP!" : _demoPhase == 2 ? "FASTER!" : "MAXIMUM CHAOS!";
+            _demoOverlay?.ShowPhase(message, new Color(1f, 0.75f, 0.12f));
+        }
+
+        if (!_isFrenzy && remainingTime <= frenzyDuration)
+        {
+            _isFrenzy = true;
+            _cachedPlayerController?.SetDemoIntensity(_demoPhase, true);
+            _demoOverlay?.ShowPhase("FINAL FEVER!", new Color(1f, 0.22f, 0.06f), true);
+        }
+    }
+
+    private void OnTrashHit(TrashType type)
+    {
+        _hitChainCount = Time.unscaledTime <= _hitChainExpiresAt ? _hitChainCount + 1 : 1;
+        _hitChainExpiresAt = Time.unscaledTime + 0.55f;
+        Vector2 worldPosition = _cachedPlayerController != null
+            ? (Vector2)_cachedPlayerController.transform.position
+            : Vector2.zero;
+        _demoOverlay?.ShowHitChain(_hitChainCount, worldPosition);
+    }
+
+    private void OnChargedSweepReleased(float holdTime, float charge01, Vector2 origin, Vector2 direction)
+    {
+        if (charge01 >= 0.98f) _demoOverlay?.ShowFullCharge();
+    }
+
+    private IEnumerator ShowFirstRunHints()
+    {
+        yield return new WaitForSecondsRealtime(0.6f);
+        _demoOverlay?.ShowHint("左鍵拖曳並放開：把掃把彈射出去");
+        yield return new WaitForSecondsRealtime(3.1f);
+        _demoOverlay?.ShowHint("E／滾輪／中鍵：切換撞擊與黏附模式");
+        yield return new WaitForSecondsRealtime(3.1f);
+        _demoOverlay?.ShowHint("右鍵蓄滿再放開：清場！　R：快速重來");
+        PlayerPrefs.SetInt(DemoHintsSeenKey, 1);
+        PlayerPrefs.Save();
     }
 
     private void OnSkillModeChanged(BroomMode mode)
@@ -374,6 +502,11 @@ public class UIManager : MonoBehaviour
         }
         if (isPaused) ResumeGame();
         else PauseGame();
+    }
+
+    private void OnQuickRestartTriggered(InputAction.CallbackContext context)
+    {
+        OnRestartGame();
     }
 
     private void PauseGame()
@@ -534,6 +667,8 @@ public class UIManager : MonoBehaviour
         {
             _cachedPlayerController.OnModeChanged -= OnSkillModeChanged;
             _cachedPlayerController.OnRightSkillCooldownUpdate -= UpdateRightSkillCooldownUI;
+            _cachedPlayerController.OnTrashHitEvent -= OnTrashHit;
+            _cachedPlayerController.OnChargedSweepReleased -= OnChargedSweepReleased;
         }
     }
 

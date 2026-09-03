@@ -4,7 +4,7 @@ using UnityEngine;
 [RequireComponent(typeof(AudioEmitter))]
 public class BlackHoleObstacle : BaseObstacle
 {
-    public static event System.Action<int> OnTrashAbsorbedScore;
+    public static event System.Action<int, bool, Vector2> OnTrashAbsorbedScore;
 
     [Header("黑洞能力設定")]
     [SerializeField] private float absorbRadius = 1f;
@@ -17,6 +17,12 @@ public class BlackHoleObstacle : BaseObstacle
     [SerializeField] private float trashRotateSpeed = 360f;
     [SerializeField] private AnimationCurve trashScaleCurve;
     [SerializeField] private AnimationCurve trashMoveCurve;
+
+    [Header("展演計分歸因")]
+    [SerializeField, Range(0f, 1f), Tooltip("不是由玩家推入時，只保留多少比例的分數")]
+    private float passiveScoreMultiplier = 0.1f;
+    [SerializeField, Min(0f), Tooltip("垃圾最後一次受玩家影響後，幾秒內被吸入仍算玩家得分")]
+    private float playerInfluenceWindow = 8f;
 
     [Header("玩家吸入設定")]
     [SerializeField] private float playerAbsorbTime = 0.5f;
@@ -45,12 +51,20 @@ public class BlackHoleObstacle : BaseObstacle
 
     public Vector3 CenterPos => transform.position + (Vector3)centerOffset;
 
+    public static int CalculateAbsorptionScore(int baseScore, bool playerAssisted, float passiveMultiplier)
+    {
+        int safeBaseScore = Mathf.Max(0, baseScore);
+        if (playerAssisted) return safeBaseScore;
+        return Mathf.RoundToInt(safeBaseScore * Mathf.Clamp01(passiveMultiplier));
+    }
+
     private struct AbsorbData
     {
         public BaseTrash trash;
         public Vector3 startPos;
         public Vector3 startScale;
         public float elapsed;
+        public bool playerAssisted;
     }
 
     // [重點註釋] 拔除冗餘的 Ejecting 狀態，解決狀態脫節
@@ -125,7 +139,9 @@ public class BlackHoleObstacle : BaseObstacle
             trash = trash,
             startPos = trash.transform.position,
             startScale = trash.transform.localScale,
-            elapsed = 0f
+            elapsed = 0f,
+            // 在開始吸入時凍結歸因，避免吸入動畫期間跨過時間門檻。
+            playerAssisted = trash.WasPlayerInfluencedRecently(playerInfluenceWindow)
         });
     }
 
@@ -200,7 +216,9 @@ public class BlackHoleObstacle : BaseObstacle
 
             if (data.elapsed >= trashAbsorbTime)
             {
-                OnTrashAbsorbedScore?.Invoke(data.trash.ScoreValue);
+                int score = CalculateAbsorptionScore(
+                    data.trash.ScoreValue, data.playerAssisted, passiveScoreMultiplier);
+                OnTrashAbsorbedScore?.Invoke(score, data.playerAssisted, CenterPos);
                 data.trash.ResetState();
 
                 if (TrashPool.Instance != null) TrashPool.Instance.ReturnTrash(data.trash);

@@ -30,6 +30,8 @@ public class AudioEmitter : MonoBehaviour
     [SerializeField] private NamedAudioClip[] soundLibrary;
 
     private AudioSource localLoopSource;
+    private readonly AudioSource[] _pitchedOneShotSources = new AudioSource[8];
+    private int _nextPitchedSource;
 
     private void Start()
     {
@@ -55,16 +57,48 @@ public class AudioEmitter : MonoBehaviour
 
     public void PlayOneShot(string soundName)
     {
+        PlayOneShot(soundName, 1f, 1f);
+    }
+
+    public void PlayOneShot(string soundName, float pitch, float volume = 1f)
+    {
         AudioClip clip = GetClip(soundName);
         if (clip != null && AudioManager.Instance != null)
         {
-            AudioManager.Instance.PlaySFX(clip);
+            if (Mathf.Approximately(pitch, 1f) && Mathf.Approximately(volume, 1f))
+            {
+                AudioManager.Instance.PlaySFX(clip);
+            }
+            else
+            {
+                PlayPitchedOneShot(clip, pitch, volume);
+            }
         }
         else
         {
             // [重點註釋] 攔截字串錯誤或未指派音檔的致命失誤，提供明確排查方向
             Debug.LogWarning($"[AudioEmitter] 無法播放單次音效 '{soundName}'。原因：未在 Sound Library 中找到該名稱，或未指派 AudioClip。");
         }
+    }
+
+    private void PlayPitchedOneShot(AudioClip clip, float pitch, float volume)
+    {
+        int index = _nextPitchedSource++ % _pitchedOneShotSources.Length;
+        AudioSource source = _pitchedOneShotSources[index];
+        if (source == null)
+        {
+            source = gameObject.AddComponent<AudioSource>();
+            source.playOnAwake = false;
+            source.loop = false;
+            source.spatialBlend = 0f;
+            _pitchedOneShotSources[index] = source;
+        }
+
+        source.Stop();
+        source.clip = clip;
+        source.pitch = Mathf.Clamp(pitch, 0.1f, 3f);
+        source.volume = Mathf.Clamp01(volume);
+        source.Play();
     }
 
     public void PlayLocalLoop(string soundName, float pitch = 1f, float volume = 1f)

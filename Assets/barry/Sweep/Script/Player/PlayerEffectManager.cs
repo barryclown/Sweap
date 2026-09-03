@@ -146,11 +146,8 @@ public class PlayerEffectManager : MonoBehaviour
 
     public void StartFollowParticle(Transform target)
     {
-        StartCoroutine(SpawnOrRestartFollowParticle(target));
-    }
+        if (target == null) return;
 
-    private IEnumerator SpawnOrRestartFollowParticle(Transform target)
-    {
         if (_dragParticleInstance == null)
         {
             var prefab = GetPS(FX_TRAIL);
@@ -164,12 +161,12 @@ public class PlayerEffectManager : MonoBehaviour
 
         if (_dragParticleInstance != null)
         {
+            // 粒子已經是玩家子物件，不需要為每次放開滑鼠建立永久追蹤協程。
+            _dragParticleInstance.transform.SetParent(target, false);
+            _dragParticleInstance.transform.localPosition = Vector3.zero;
+            _dragParticleInstance.transform.localRotation = Quaternion.identity;
+            _dragParticleInstance.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
             _dragParticleInstance.Play(true);
-            while (_dragParticleInstance != null)
-            {
-                _dragParticleInstance.transform.position = target.position;
-                yield return null;
-            }
         }
     }
 

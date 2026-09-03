@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./Library/**)",
+      "Read(./Temp/**)",
+      "Read(./Obj/**)",
+      "Read(./Logs/**)",
+      "Read(./Build/**)",
+      "Read(./Builds/**)",
+      "Read(./UserSettings/**)",
+      "Edit(**/*.unity)",
+      "Edit(**/*.prefab)",
+      "Edit(**/*.asset)",
+      "Edit(**/*.mat)",
+      "Edit(**/*.controller)",
+      "Edit(**/*.overrideController)",
+      "Edit(**/*.anim)",
+      "Edit(**/*.meta)",
+      "Write(**/*.unity)",
+      "Write(**/*.prefab)",
+      "Write(**/*.asset)",
+      "Write(**/*.mat)",
+      "Write(**/*.controller)",
+      "Write(**/*.overrideController)",
+      "Write(**/*.anim)",
+      "Write(**/*.meta)"
+    ]
+  }
+}

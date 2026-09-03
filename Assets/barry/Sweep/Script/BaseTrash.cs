@@ -65,9 +65,15 @@ public class BaseTrash : BasePoolItem, IAbsorbable
     private Collider2D[] _colliders;
     private Transform _transform;
     private bool _areCollidersEnabled = true;
+    private float _lastPlayerInfluenceTime = float.NegativeInfinity;
     private const int MAX_SUB_STEPS = 8;
 
     public bool CanBeAbsorbed => !IsAbsorbing && !_isStuck;
+
+    public bool WasPlayerInfluencedRecently(float maxAgeSeconds)
+    {
+        return Time.time - _lastPlayerInfluenceTime <= Mathf.Max(0f, maxAgeSeconds);
+    }
 
     protected virtual void Awake()
     {
@@ -143,6 +149,8 @@ public class BaseTrash : BasePoolItem, IAbsorbable
     public void ApplyMagnetHold(Vector2 targetPosition, Vector2 hostVelocity)
     {
         if (IsAbsorbing) return;
+
+        MarkPlayerInfluence();
 
         if (!_isStuck)
         {
@@ -335,6 +343,11 @@ public class BaseTrash : BasePoolItem, IAbsorbable
 
         if (relSpeedN <= minCollisionSpeed) return;
 
+        // 玩家打出的垃圾形成連鎖碰撞時，後續垃圾也保留同一份玩家功勞。
+        float sharedInfluenceTime = Mathf.Max(_lastPlayerInfluenceTime, other._lastPlayerInfluenceTime);
+        _lastPlayerInfluenceTime = sharedInfluenceTime;
+        other._lastPlayerInfluenceTime = sharedInfluenceTime;
+
         float e = Mathf.Clamp01(collisionDamping);
         float invSum = InvWeight + other.InvWeight;
         if (invSum <= 0f) return;
@@ -424,11 +437,30 @@ public class BaseTrash : BasePoolItem, IAbsorbable
         currentVelocity += impulse * InvWeight;
     }
 
+    public void ApplyExternalForce(Vector2 force)
+    {
+        ApplyExternalImpulse(force * Time.fixedDeltaTime);
+    }
+
+    public void ApplyExternalImpulse(Vector2 impulse)
+    {
+        if (IsAbsorbing || _isStuck) return;
+
+        WakeUp();
+        ApplyImpulse(impulse);
+    }
+
+    private void MarkPlayerInfluence()
+    {
+        _lastPlayerInfluenceTime = Time.time;
+    }
+
     public void ApplyBroomHit(Vector2 hitDirection, float power)
     {
         if (IsAbsorbing || _isStuck) return;
         if (PlayerController.instance != null && PlayerController.instance.currentMode == BroomMode.Sticky) return;
 
+        MarkPlayerInfluence();
         WakeUp();
         if (_isRecentlyHit) return;
 
@@ -516,6 +548,7 @@ public class BaseTrash : BasePoolItem, IAbsorbable
         _hitCooldownTimer = 0f;
         _isStuck = false;
         _stickVelocitySmooth = Vector2.zero;
+        _lastPlayerInfluenceTime = float.NegativeInfinity;
         WakeUp();
         SetCollidersEnabled(true);
     }

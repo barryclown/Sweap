@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -23,6 +24,24 @@ public class PlayerController : MonoBehaviour, IAbsorbable
     private float vfxHitCooldown = 0.1f;
     private float _vfxCooldownTimer = 0f;
 
+    [Header("=== 展演爽感 ===")]
+    [SerializeField, Range(0.01f, 0.2f)] private float hitStopDuration = 0.035f;
+    [SerializeField, Range(0.01f, 0.5f)] private float hitStopTimeScale = 0.08f;
+    [SerializeField, Min(0f)] private float hitCameraShake = 0.11f;
+    [SerializeField, Min(0f)] private float wallCameraShake = 0.18f;
+    [SerializeField, Min(0f)] private float fullChargeCameraShake = 0.42f;
+    [SerializeField, Range(0.01f, 0.2f)] private float fullChargeHitStopDuration = 0.06f;
+
+    private float _demoSpeedMultiplier = 1f;
+    private float _demoCooldownRecoveryMultiplier = 1f;
+    private Coroutine _hitStopRoutine;
+    private float _hitStopUntil;
+    private float _timeScaleBeforeHitStop = 1f;
+    private float _activeHitStopScale = 1f;
+    private float _cameraShakeUntil;
+    private float _cameraShakeAmplitude;
+    private Vector3 _lastCameraShakeOffset;
+
     [Header("=== 防穿模與重物阻擋 (連續碰撞) ===")]
     [SerializeField, Tooltip("實體阻擋半徑 (低於 sweepRadius，代表掃把本體的物理邊界)")]
     public float bodyCollisionRadius = 0.5f;
@@ -38,6 +57,7 @@ public class PlayerController : MonoBehaviour, IAbsorbable
     public Rigidbody2D rb;
     private Camera cam;
     private PlayerInput input;
+    private InputActionMap playerActionMap;
 
     public event Action<Vector2, float, Vector2, float> OnSweepMove;
     public event Action<float, float, Vector2, Vector2> OnChargedSweepUpdate;
@@ -181,12 +201,22 @@ public class PlayerController : MonoBehaviour, IAbsorbable
 
     private float GetEffectiveMaxSpeed()
     {
-        if (currentMode != BroomMode.Sticky || _currentStickyLoad <= 0.001f)
-            return maxSpeed;
+        float effectiveSpeed = maxSpeed;
 
-        float penaltyDivisor = 1f + (_currentStickyLoad * weightPenaltyFactor);
-        float penalizedSpeed = maxSpeed / penaltyDivisor;
-        return Mathf.Max(penalizedSpeed, minStickySpeed);
+        if (currentMode == BroomMode.Sticky && _currentStickyLoad > 0.001f)
+        {
+            float penaltyDivisor = 1f + (_currentStickyLoad * weightPenaltyFactor);
+            effectiveSpeed = Mathf.Max(maxSpeed / penaltyDivisor, minStickySpeed);
+        }
+
+        return effectiveSpeed * _demoSpeedMultiplier;
+    }
+
+    public void SetDemoIntensity(int phase, bool frenzy)
+    {
+        int safePhase = Mathf.Clamp(phase, 0, 3);
+        _demoSpeedMultiplier = 1f + (safePhase * 0.08f) + (frenzy ? 0.15f : 0f);
+        _demoCooldownRecoveryMultiplier = 1f + (safePhase * 0.25f) + (frenzy ? 1.25f : 0f);
     }
 
     private void OnTriggerExit2D(Collider2D other)
@@ -208,10 +238,16 @@ public class PlayerController : MonoBehaviour, IAbsorbable
         input = GetComponent<PlayerInput>();
         if (input == null) { Debug.LogError("Missing PlayerInput!"); return; }
 
-        pointerPress = input.actions["PointerPress"];
-        rightPointerPress = input.actions["RightPointerPress"];
-        pointerPosition = input.actions["PointerPosition"];
-        switchModeAction = input.actions.FindAction("SwitchMode");
+        playerActionMap = input.actions?.FindActionMap("Player", false);
+        pointerPress = playerActionMap?.FindAction("PointerPress", false);
+        rightPointerPress = playerActionMap?.FindAction("RightPointerPress", false);
+        pointerPosition = playerActionMap?.FindAction("PointerPosition", false);
+        switchModeAction = playerActionMap?.FindAction("SwitchMode", false);
+
+        if (playerActionMap == null || pointerPress == null || rightPointerPress == null || pointerPosition == null)
+        {
+            Debug.LogError("[PlayerController] Player Input Actions 缺少 Player map 或必要滑鼠 Action。", this);
+        }
 
         scrollYAction = new InputAction("ScrollY", binding: "<Mouse>/scroll/y");
         middleClickAction = new InputAction("MiddleClick", binding: "<Mouse>/middleButton");
@@ -236,10 +272,17 @@ public class PlayerController : MonoBehaviour, IAbsorbable
     private void OnEnable()
     {
         if (input == null) return;
-        pointerPress.started += OnPress;
-        pointerPress.canceled += OnRelease;
-        rightPointerPress.started += OnRightPress;
-        rightPointerPress.canceled += OnRightRelease;
+        playerActionMap?.Enable();
+        if (pointerPress != null)
+        {
+            pointerPress.started += OnPress;
+            pointerPress.canceled += OnRelease;
+        }
+        if (rightPointerPress != null)
+        {
+            rightPointerPress.started += OnRightPress;
+            rightPointerPress.canceled += OnRightRelease;
+        }
         if (switchModeAction != null) switchModeAction.performed += OnSwitchModeInput;
         scrollYAction.Enable();
         middleClickAction.Enable();
@@ -249,16 +292,27 @@ public class PlayerController : MonoBehaviour, IAbsorbable
 
     private void OnDisable()
     {
-        if (input == null) return;
-        pointerPress.started -= OnPress;
-        pointerPress.canceled -= OnRelease;
-        rightPointerPress.started -= OnRightPress;
-        rightPointerPress.canceled -= OnRightRelease;
+        if (pointerPress != null)
+        {
+            pointerPress.started -= OnPress;
+            pointerPress.canceled -= OnRelease;
+        }
+        if (rightPointerPress != null)
+        {
+            rightPointerPress.started -= OnRightPress;
+            rightPointerPress.canceled -= OnRightRelease;
+        }
         if (switchModeAction != null) switchModeAction.performed -= OnSwitchModeInput;
-        scrollYAction.Disable();
-        middleClickAction.Disable();
-        middleClickAction.performed -= OnSwitchModeInput;
+        playerActionMap?.Disable();
+        scrollYAction?.Disable();
+        middleClickAction?.Disable();
+        if (middleClickAction != null) middleClickAction.performed -= OnSwitchModeInput;
         PetAI.OnPetScaleChanged -= HandlePetGrowth;
+
+        isLeftDown = false;
+        isRightDown = false;
+        blockBoth = false;
+        effectManager?.StopAllEffects();
     }
 
     private void HandlePetGrowth(float petScaleMultiplier)
@@ -282,7 +336,7 @@ public class PlayerController : MonoBehaviour, IAbsorbable
 
         if (_currentRightSkillCooldown > 0f)
         {
-            _currentRightSkillCooldown -= Time.deltaTime;
+            _currentRightSkillCooldown -= Time.deltaTime * _demoCooldownRecoveryMultiplier;
             if (_currentRightSkillCooldown <= 0f) _currentRightSkillCooldown = 0f;
             OnRightSkillCooldownUpdate?.Invoke(_currentRightSkillCooldown, rightSkillCooldown);
         }
@@ -357,6 +411,8 @@ public class PlayerController : MonoBehaviour, IAbsorbable
                 rb.linearVelocity = Vector2.zero;
                 effectManager.PlayWallHit(hitPoint, hitNormal);
                 OnWallHitEvent?.Invoke();
+                RequestCameraShake(wallCameraShake, 0.14f);
+                TriggerHitStop(hitStopDuration, hitStopTimeScale);
                 currentSpeed = 0f;
                 effectManager.StopTrail();
                 return;
@@ -465,16 +521,22 @@ public class PlayerController : MonoBehaviour, IAbsorbable
         }
 
         Vector3 desiredPosition = transform.position + cameraOffset + _cameraLookAheadOffset;
+        Vector3 currentCameraBase = cam.transform.position - _lastCameraShakeOffset;
+        Vector3 cameraBasePosition;
 
         if (cameraFollowSmoothTime <= 0f)
         {
-            cam.transform.position = desiredPosition;
+            cameraBasePosition = desiredPosition;
             _cameraFollowVelocity = Vector3.zero;
-            return;
+        }
+        else
+        {
+            cameraBasePosition = Vector3.SmoothDamp(
+                currentCameraBase, desiredPosition, ref _cameraFollowVelocity, cameraFollowSmoothTime);
         }
 
-        cam.transform.position = Vector3.SmoothDamp(
-            cam.transform.position, desiredPosition, ref _cameraFollowVelocity, cameraFollowSmoothTime);
+        _lastCameraShakeOffset = GetCameraShakeOffset();
+        cam.transform.position = cameraBasePosition + _lastCameraShakeOffset;
     }
 
     private Vector3 GetCameraLookAheadTarget()
@@ -490,9 +552,13 @@ public class PlayerController : MonoBehaviour, IAbsorbable
 
     private void ResetCameraMotion()
     {
+        if (cam != null) cam.transform.position -= _lastCameraShakeOffset;
         _cameraFollowVelocity = Vector3.zero;
         _cameraLookAheadOffset = Vector3.zero;
         _cameraLookAheadVelocity = Vector3.zero;
+        _lastCameraShakeOffset = Vector3.zero;
+        _cameraShakeUntil = 0f;
+        _cameraShakeAmplitude = 0f;
     }
 
     private void OnSwitchModeInput(InputAction.CallbackContext ctx) => ToggleSkillMode();
@@ -574,6 +640,11 @@ public class PlayerController : MonoBehaviour, IAbsorbable
         Vector2 origin = c + chargedDir * chargeCenterOffset;
 
         OnChargedSweepReleased?.Invoke(hold, t, origin, chargedDir);
+        if (t >= 0.98f)
+        {
+            RequestCameraShake(fullChargeCameraShake, 0.22f);
+            TriggerHitStop(fullChargeHitStopDuration, hitStopTimeScale);
+        }
         effectManager.HideChargeSweep();
         _currentRightSkillCooldown = rightSkillCooldown;
         OnRightSkillCooldownUpdate?.Invoke(_currentRightSkillCooldown, rightSkillCooldown);
@@ -595,7 +666,64 @@ public class PlayerController : MonoBehaviour, IAbsorbable
         if (_vfxCooldownTimer > 0f) return;
         effectManager.PlayTrashHit(hitPoint, hitNormal);
         OnTrashHitEvent?.Invoke(type);
+        RequestCameraShake(hitCameraShake, 0.09f);
+        TriggerHitStop(hitStopDuration, hitStopTimeScale);
         _vfxCooldownTimer = vfxHitCooldown;
+    }
+
+    private void RequestCameraShake(float amplitude, float duration)
+    {
+        if (amplitude <= 0f || duration <= 0f) return;
+        _cameraShakeAmplitude = Mathf.Max(_cameraShakeAmplitude, amplitude);
+        _cameraShakeUntil = Mathf.Max(_cameraShakeUntil, Time.unscaledTime + duration);
+    }
+
+    private Vector3 GetCameraShakeOffset()
+    {
+        float remaining = _cameraShakeUntil - Time.unscaledTime;
+        if (remaining <= 0f)
+        {
+            _cameraShakeAmplitude = 0f;
+            return Vector3.zero;
+        }
+
+        float fade = Mathf.Clamp01(remaining / 0.22f);
+        Vector2 offset = UnityEngine.Random.insideUnitCircle * (_cameraShakeAmplitude * fade);
+        return new Vector3(offset.x, offset.y, 0f);
+    }
+
+    private void TriggerHitStop(float duration, float targetTimeScale)
+    {
+        if (duration <= 0f || Time.timeScale <= 0f) return;
+
+        _hitStopUntil = Mathf.Max(_hitStopUntil, Time.unscaledTime + duration);
+        targetTimeScale = Mathf.Clamp(targetTimeScale, 0.01f, 1f);
+
+        if (_hitStopRoutine != null)
+        {
+            _activeHitStopScale = Mathf.Min(_activeHitStopScale, targetTimeScale);
+            Time.timeScale = _activeHitStopScale;
+            return;
+        }
+
+        _timeScaleBeforeHitStop = Time.timeScale;
+        _activeHitStopScale = Mathf.Min(Time.timeScale, targetTimeScale);
+        Time.timeScale = _activeHitStopScale;
+        _hitStopRoutine = StartCoroutine(HitStopRoutine());
+    }
+
+    private IEnumerator HitStopRoutine()
+    {
+        while (Time.unscaledTime < _hitStopUntil) yield return null;
+
+        // 若暫停選單已把 timeScale 改為 0，就交給 UIManager 恢復，不越權覆蓋。
+        if (Mathf.Approximately(Time.timeScale, _activeHitStopScale))
+        {
+            Time.timeScale = _timeScaleBeforeHitStop;
+        }
+
+        _hitStopRoutine = null;
+        _activeHitStopScale = 1f;
     }
 
     public void ExitBlackHole(Vector2 ejectDir, float ejectSpeed)

@@ -33,6 +33,8 @@ public class PlayerAudioController : MonoBehaviour
 
     // 利用字典儲存「每一種材質」上次發出聲音的時間
     private Dictionary<TrashType, float> _hitCooldowns = new Dictionary<TrashType, float>();
+    private int _hitPitchChain;
+    private float _lastAnyTrashHitTime = float.NegativeInfinity;
 
     private void Awake()
     {
@@ -117,7 +119,7 @@ public class PlayerAudioController : MonoBehaviour
         {
             emitter.StopLocalLoop();
         }
-        emitter.PlayOneShot(chargeShootSound);
+        emitter.PlayOneShot(chargeShootSound, Mathf.Lerp(1f, 1.22f, t));
     }
 
     // [重點註釋] 高階材質混音邏輯：透過字典找出該材質上次播放的時間，進行獨立冷卻
@@ -134,7 +136,12 @@ public class PlayerAudioController : MonoBehaviour
 
             if (!string.IsNullOrEmpty(soundToPlay))
             {
-                emitter.PlayOneShot(soundToPlay);
+                _hitPitchChain = Time.unscaledTime - _lastAnyTrashHitTime <= 0.55f
+                    ? Mathf.Min(_hitPitchChain + 1, 10)
+                    : 1;
+                _lastAnyTrashHitTime = Time.unscaledTime;
+                float pitch = 0.94f + ((_hitPitchChain - 1) * 0.065f);
+                emitter.PlayOneShot(soundToPlay, pitch);
                 _hitCooldowns[type] = Time.time;
             }
         }
