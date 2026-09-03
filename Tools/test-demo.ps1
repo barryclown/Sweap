@@ -31,8 +31,13 @@ $arguments = @(
     "-testResults", $resultsPath,
     "-logFile", $logPath
 )
-& $unityExe @arguments
-$unityExitCode = $LASTEXITCODE
+$startInfo = [System.Diagnostics.ProcessStartInfo]::new($unityExe)
+$startInfo.UseShellExecute = $false
+$startInfo.CreateNoWindow = $true
+foreach ($argument in $arguments) { $startInfo.ArgumentList.Add($argument) }
+$unityProcess = [System.Diagnostics.Process]::Start($startInfo)
+$unityProcess.WaitForExit()
+$unityExitCode = $unityProcess.ExitCode
 
 if (-not (Test-Path -LiteralPath $resultsPath)) {
     throw "Unity 未產生測試結果（exit $unityExitCode）。詳見 $logPath"

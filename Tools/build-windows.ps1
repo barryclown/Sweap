@@ -42,9 +42,15 @@ $arguments = @(
 )
 if ($Development) { $arguments += "-sweepDevelopmentBuild" }
 
-& $unityExe @arguments
-if ($LASTEXITCODE -ne 0) {
-    throw "Unity Windows 建置失敗（exit $LASTEXITCODE）。詳見 $logPath"
+$startInfo = [System.Diagnostics.ProcessStartInfo]::new($unityExe)
+$startInfo.UseShellExecute = $false
+$startInfo.CreateNoWindow = $true
+foreach ($argument in $arguments) { $startInfo.ArgumentList.Add($argument) }
+$unityProcess = [System.Diagnostics.Process]::Start($startInfo)
+$unityProcess.WaitForExit()
+$unityExitCode = $unityProcess.ExitCode
+if ($unityExitCode -ne 0) {
+    throw "Unity Windows 建置失敗（exit $unityExitCode）。詳見 $logPath"
 }
 if (-not (Test-Path -LiteralPath $OutputPath)) {
     throw "Unity 回傳成功但找不到輸出：$OutputPath"

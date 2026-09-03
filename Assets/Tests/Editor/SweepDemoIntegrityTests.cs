@@ -74,14 +74,14 @@ public sealed class SweepDemoIntegrityTests
     public void PoolItem_WithLegacyZeroScale_RestoresItsRealScale()
     {
         GameObject go = new GameObject("Pool scale test");
+        go.transform.localScale = new Vector3(1.75f, 2.25f, 1f);
         go.SetActive(false);
 
         try
         {
             PoolScaleProbe probe = go.AddComponent<PoolScaleProbe>();
-            probe.initialScale = Vector3.zero;
-            go.transform.localScale = new Vector3(1.75f, 2.25f, 1f);
-            go.SetActive(true);
+            Assert.That(probe.initialScale, Is.EqualTo(Vector3.zero));
+            probe.CaptureScaleForTest();
 
             go.transform.localScale = Vector3.zero;
             probe.ResetState();
@@ -97,4 +97,8 @@ public sealed class SweepDemoIntegrityTests
 
 public sealed class PoolScaleProbe : BasePoolItem
 {
+    public void CaptureScaleForTest()
+    {
+        base.OnEnable();
+    }
 }
