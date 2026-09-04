@@ -55,6 +55,11 @@ Thumbs.db
 /[Mm]emoryCaptures/
 /[Rr]ecordings/
 
+# MCP execute_code Roslyn cache: reproducible Editor-only tooling, not game content.
+/Assets/Plugins/Roslyn/
+/Assets/Plugins/Roslyn.meta
+/Assets/Plugins.meta
+
 # IDE / Unity generated solution files
 /.vscode/
 *.csproj

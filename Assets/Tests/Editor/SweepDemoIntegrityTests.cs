@@ -1,6 +1,7 @@
 using System.Linq;
 using NUnit.Framework;
 using UnityEditor;
+using UnityEngine.SceneManagement;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.Video;
@@ -8,7 +9,7 @@ using UnityEngine.Video;
 public sealed class SweepDemoIntegrityTests
 {
     private const string InputActionsPath = "Assets/InputSystem_Actions.inputactions";
-    private const string IntroVideoPath = "Assets/barry/Sweep/Spirte/limit/video.mp4";
+    private const string IntroVideoPath = "Assets/barry/Sweep/Sprites/limit/video.mp4";
 
     [Test]
     public void BuildSettings_ContainRequiredEnabledScenes()
@@ -81,7 +82,7 @@ public sealed class SweepDemoIntegrityTests
         {
             PoolScaleProbe probe = go.AddComponent<PoolScaleProbe>();
             Assert.That(probe.initialScale, Is.EqualTo(Vector3.zero));
-            probe.CaptureScaleForTest();
+            probe.CaptureTransformForTest();
 
             go.transform.localScale = Vector3.zero;
             probe.ResetState();
@@ -93,11 +94,34 @@ public sealed class SweepDemoIntegrityTests
             Object.DestroyImmediate(go);
         }
     }
+
+    [Test]
+    public void PoolItem_AfterAbsorbSpin_RestoresItsInitialRotation()
+    {
+        GameObject go = new GameObject("Pool rotation test");
+        Quaternion expected = Quaternion.Euler(315f, 0f, 37f);
+        go.transform.rotation = expected;
+        go.SetActive(false);
+
+        try
+        {
+            PoolScaleProbe probe = go.AddComponent<PoolScaleProbe>();
+            probe.CaptureTransformForTest();
+            go.transform.rotation = Quaternion.Euler(10f, 20f, 170f);
+            probe.ResetState();
+
+            Assert.That(Quaternion.Angle(go.transform.rotation, expected), Is.LessThan(0.001f));
+        }
+        finally
+        {
+            Object.DestroyImmediate(go);
+        }
+    }
 }
 
 public sealed class PoolScaleProbe : BasePoolItem
 {
-    public void CaptureScaleForTest()
+    public void CaptureTransformForTest()
     {
         base.OnEnable();
     }

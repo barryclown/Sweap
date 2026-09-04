@@ -6,6 +6,13 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+function Join-ProcessArguments([string[]]$Values) {
+    return (($Values | ForEach-Object {
+        if ($_ -match '[\s"]') { '"' + $_.Replace('"', '\"') + '"' } else { $_ }
+    }) -join ' ')
+}
+
 $projectRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
 if ([string]::IsNullOrWhiteSpace($ExecutablePath)) {
     $ExecutablePath = Join-Path $projectRoot "Builds\Windows\DragameDemo.exe"
@@ -15,7 +22,7 @@ if ([string]::IsNullOrWhiteSpace($ExecutablePath)) {
 $ExecutablePath = [System.IO.Path]::GetFullPath($ExecutablePath)
 
 if (-not (Test-Path -LiteralPath $ExecutablePath -PathType Leaf)) {
-    throw "找不到 Windows Build：$ExecutablePath。請先執行 Tools\build-windows.ps1。"
+    throw "Windows build not found: $ExecutablePath. Run Tools\build-windows.ps1 first."
 }
 
 $logPath = Join-Path $projectRoot "Logs\Player-Smoke.log"
@@ -29,29 +36,29 @@ $arguments = @(
 $startInfo = [System.Diagnostics.ProcessStartInfo]::new($ExecutablePath)
 $startInfo.UseShellExecute = $false
 $startInfo.CreateNoWindow = $true
-foreach ($argument in $arguments) { $startInfo.ArgumentList.Add($argument) }
+$startInfo.Arguments = Join-ProcessArguments $arguments
 
 $playerProcess = [System.Diagnostics.Process]::Start($startInfo)
 if (-not $playerProcess.WaitForExit($TimeoutSeconds * 1000)) {
     $launchedPath = $playerProcess.MainModule.FileName
     if (-not [string]::Equals($launchedPath, $ExecutablePath, [System.StringComparison]::OrdinalIgnoreCase)) {
-        throw "測試逾時，但 PID $($playerProcess.Id) 已不是原本啟動的 Player；拒絕終止。"
+        throw "Smoke test timed out, but PID $($playerProcess.Id) no longer belongs to the launched Player; refusing to terminate it."
     }
     $playerProcess.Kill()
     $playerProcess.WaitForExit()
-    throw "Player 冒煙測試逾時，已終止本腳本啟動的 PID $($playerProcess.Id)。詳見 $logPath"
+    throw "Player smoke test timed out; terminated the Player PID started by this script: $($playerProcess.Id). See $logPath"
 }
 
 if ($playerProcess.ExitCode -ne 0) {
-    throw "Player 冒煙測試失敗（exit $($playerProcess.ExitCode)）。詳見 $logPath"
+    throw "Player smoke test failed (exit $($playerProcess.ExitCode)). See $logPath"
 }
 if (-not (Test-Path -LiteralPath $logPath -PathType Leaf)) {
-    throw "Player 沒有產生冒煙測試 log：$logPath"
+    throw "Player did not produce a smoke-test log: $logPath"
 }
 
 $successLine = Select-String -LiteralPath $logPath -Pattern "SWEEP_SMOKE_OK" | Select-Object -Last 1
 if (-not $successLine) {
-    throw "Player 已結束但沒有完成展演回合。詳見 $logPath"
+    throw "Player exited without completing the exhibition round. See $logPath"
 }
 
 Write-Host $successLine.Line

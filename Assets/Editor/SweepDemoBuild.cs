@@ -30,6 +30,7 @@ public static class SweepDemoBuild
         if (string.IsNullOrEmpty(outputDirectory))
             throw new BuildFailedException($"無法解析建置輸出目錄：{outputPath}");
 
+        CleanPreviousBuildArtifacts(projectRoot, outputPath, outputDirectory);
         Directory.CreateDirectory(outputDirectory);
         AssetDatabase.SaveAssets();
 
@@ -51,6 +52,7 @@ public static class SweepDemoBuild
                 $"Sweep Demo Windows 建置失敗：{summary.result}，errors={summary.totalErrors}，warnings={summary.totalWarnings}");
         }
 
+        ValidateNoEditorCompilerAssemblies(outputPath);
         Debug.Log($"[SweepDemoBuild] BUILD_SUCCEEDED path={outputPath} size={summary.totalSize} duration={summary.totalTime}");
     }
 
@@ -62,7 +64,7 @@ public static class SweepDemoBuild
 
         if (AssetDatabase.LoadAssetAtPath<UnityEngine.Object>("Assets/InputSystem_Actions.inputactions") == null)
             throw new BuildFailedException("找不到 InputSystem_Actions.inputactions");
-        if (AssetDatabase.LoadAssetAtPath<UnityEngine.Object>("Assets/barry/Sweep/Spirte/limit/video.mp4") == null)
+        if (AssetDatabase.LoadAssetAtPath<UnityEngine.Object>("Assets/barry/Sweep/Sprites/limit/video.mp4") == null)
             throw new BuildFailedException("找不到開場 video.mp4");
 
         Debug.Log($"[SweepDemoBuild] PREFLIGHT_SUCCEEDED scenes={string.Join(",", scenes)}");
@@ -105,6 +107,65 @@ public static class SweepDemoBuild
             string absoluteScenePath = Path.GetFullPath(Path.Combine(projectRoot, scene));
             if (!File.Exists(absoluteScenePath))
                 throw new BuildFailedException($"Build Settings 場景不存在：{scene}");
+        }
+    }
+
+    private static void CleanPreviousBuildArtifacts(
+        string projectRoot,
+        string outputPath,
+        string outputDirectory)
+    {
+        string defaultDirectory = Path.GetFullPath(
+            Path.Combine(projectRoot, Path.GetDirectoryName(DefaultRelativeOutput) ?? string.Empty));
+
+        // The default output is a dedicated generated directory, so replacing it
+        // is safe and prevents stale managed DLLs from surviving an incremental build.
+        if (string.Equals(
+                outputDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                defaultDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                StringComparison.OrdinalIgnoreCase))
+        {
+            if (Directory.Exists(outputDirectory)) Directory.Delete(outputDirectory, true);
+            return;
+        }
+
+        // A caller may point -sweepBuildOutput at a shared directory. In that case
+        // remove only artifacts whose names belong to this build.
+        if (File.Exists(outputPath)) File.Delete(outputPath);
+
+        string dataDirectory = Path.Combine(
+            outputDirectory,
+            Path.GetFileNameWithoutExtension(outputPath) + "_Data");
+        if (Directory.Exists(dataDirectory)) Directory.Delete(dataDirectory, true);
+
+        string burstDirectory = Path.Combine(
+            outputDirectory,
+            PlayerSettings.productName + "_BurstDebugInformation_DoNotShip");
+        if (Directory.Exists(burstDirectory)) Directory.Delete(burstDirectory, true);
+    }
+
+    private static void ValidateNoEditorCompilerAssemblies(string outputPath)
+    {
+        string outputDirectory = Path.GetDirectoryName(outputPath) ?? string.Empty;
+        string managedDirectory = Path.Combine(
+            outputDirectory,
+            Path.GetFileNameWithoutExtension(outputPath) + "_Data",
+            "Managed");
+        string[] editorCompilerAssemblies =
+        {
+            "Microsoft.CodeAnalysis.dll",
+            "Microsoft.CodeAnalysis.CSharp.dll",
+            "System.Collections.Immutable.dll",
+            "System.Reflection.Metadata.dll"
+        };
+
+        string[] leaked = editorCompilerAssemblies
+            .Where(name => File.Exists(Path.Combine(managedDirectory, name)))
+            .ToArray();
+        if (leaked.Length > 0)
+        {
+            throw new BuildFailedException(
+                $"Editor-only Roslyn assemblies leaked into the Player build: {string.Join(", ", leaked)}");
         }
     }
 

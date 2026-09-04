@@ -5,17 +5,11 @@ EditorBuildSettings:
   m_ObjectHideFlags: 0
   serializedVersion: 2
   m_Scenes:
-  - enabled: 0
-    path: Assets/barry/Scenes/SampleScene.unity
-    guid: 99c9720ab356a0642a771bea13969a05
   - enabled: 1
     path: Assets/barry/Scenes/StartMenu.unity
     guid: 8c2dc1f041f8e414695b9b41c7381276
   - enabled: 1
     path: Assets/barry/Scenes/Sweep.unity
     guid: 3bec77eca0e0bc44f9566619bf6e3b39
-  - enabled: 0
-    path: Assets/barry/Scenes/EndMenu.unity
-    guid: 2bd20ca852dec4d4b939aa6ff16a9989
   m_configObjects:
     com.unity.input.settings.actions: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}

@@ -42,6 +42,7 @@ python C:\Users\barry\Desktop\claude\unity-template\unity_auto.py verify --expec
 powershell -ExecutionPolicy Bypass -File .\Tools\test-demo.ps1
 powershell -ExecutionPolicy Bypass -File .\Tools\build-windows.ps1
 powershell -ExecutionPolicy Bypass -File .\Tools\smoke-player.ps1
+powershell -ExecutionPolicy Bypass -File .\Tools\stress-collisions.ps1
 ```
 
 也可以直接從 Unity 選：
@@ -49,15 +50,31 @@ powershell -ExecutionPolicy Bypass -File .\Tools\smoke-player.ps1
 - `Tools > Sweep Demo > Run Preflight`
 - `Tools > Sweep Demo > Build Windows`
 
-預設輸出是 `Builds\Windows\DragameDemo.exe`，建置／測試日誌在 `Logs\`。`smoke-player.ps1` 會以固定亂數種子、不開視窗地加速跑完一局，並輸出掛機分數／評級；2026-09-04 的基準結果是 `score=16, grade=None`，低於 C 的 60 分門檻。腳本偵測到同一專案已開啟時會明確停止，不會強制關閉 Editor。
+預設輸出是 `Builds\Windows\DragameDemo.exe`，建置／測試日誌在 `Logs\`。`smoke-player.ps1` 會以固定亂數種子、不開視窗地加速跑完一局，並輸出掛機分數／評級；2026-09-05 的基準結果是 `score=14, grade=None`，低於 C 的 60 分門檻。腳本偵測到同一專案已開啟時會明確停止，不會強制關閉 Editor。
+
+`stress-collisions.ps1` 會在正式 Player 中把 12 個垃圾壓成密集團並施加高力度，確認測試確實產生速度與位移，再驗證它們能分離、保持有限數值，且不穿出主邊界或場景障礙；只在帶 `-sweepCollisionStress` 參數時啟動，不影響正常遊戲。
+
+## 碰撞與場景自動化
+
+新增或更換垃圾 Sprite 後，不必再手動畫碰撞體：
+
+- `Tools > Sweep Demo > Collision > Auto-Fit All Trash Prefabs`：從 Sprite alpha 輪廓建立最多 6 個串珠節點及 16 點 PolygonCollider2D。
+- `Tools > Sweep Demo > Collision > Validate All Trash Prefabs`：檢查 16 個 Prefab 的漏判、外溢、節點與 Polygon。
+- `Tools > Sweep Demo > Collision > Set Up Scene Footprints and Bottom Wall`：重算人物／桌子／燈具的 2.5D 接地區，並建立純視覺下牆。
+- `Tools > Sweep Demo > Project > Organize Safe Active Assets`：以 AssetDatabase 保留 GUID 地整理使用中的資料夾與名稱。
+
+垃圾互撞使用 `BaseTrash` 的串珠節點；掃擊、吸取及黑洞 Trigger 使用 PolygonCollider2D，兩者由同一份 alpha 輪廓產生。玩家本體、技能範圍、黑洞吸取半徑及主世界邊界屬手感／規則參數，不做 Sprite 自動擬合。下邊物理原本已由 `WorldBounds2D` 和 EdgeCollider 提供，因此新增的 `BottomWallVisual` 刻意不帶 Collider，避免雙重反彈。
 
 ## 重要程式位置
 
-- `Assets/barry/Sweep/Script/Player/PlayerController.cs`：拖曳、蓄力、模式、hit-stop、鏡頭震動與節奏加速。
-- `Assets/barry/Sweep/Script/BaseTrash.cs`：自訂垃圾物理、玩家影響歸因與回收狀態。
-- `Assets/barry/Sweep/Script/BlackHoleObstacle.cs`：吸入流程與主動／被動計分。
-- `Assets/barry/Sweep/Script/UI/UIManager.cs`：60 秒流程、Combo、Fever、提示與結算。
-- `Assets/barry/Sweep/Script/UI/DemoFeedbackOverlay.cs`：執行期展演 HUD，不要求手改 Scene。
+- `Assets/barry/Sweep/Scripts/Player/PlayerController.cs`：拖曳、蓄力、模式、hit-stop、鏡頭震動與節奏加速。
+- `Assets/barry/Sweep/Scripts/BaseTrash.cs`：自訂垃圾物理、玩家影響歸因與複合碰撞解算。
+- `Assets/barry/Sweep/Scripts/BlackHoleObstacle.cs`：吸入流程與主動／被動計分。
+- `Assets/barry/Sweep/Scripts/UI/UIManager.cs`：60 秒流程、Combo、Fever、提示與結算。
+- `Assets/barry/Sweep/Scripts/UI/DemoFeedbackOverlay.cs`：執行期展演 HUD，不要求手改 Scene。
+- `Assets/Editor/SweepColliderAutoFit.cs`：垃圾 alpha 輪廓、Polygon 與串珠自動擬合。
+- `Assets/Editor/SweepSceneCollisionSetup.cs`：2.5D 接地碰撞與四面視覺牆設定。
+- `Assets/Editor/SweepProjectOrganizer.cs`：可重跑、GUID 保留式安全整理。
 - `Assets/Editor/SweepDemoBuild.cs`：Preflight、快速重置與 Windows Build。
 - `Assets/Tests/Editor/SweepDemoIntegrityTests.cs`：最小冒煙測試。
 - `Tools/smoke-player.ps1`：正式 Windows Player 的無畫面整局冒煙測試。

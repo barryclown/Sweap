@@ -5,6 +5,13 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+function Join-ProcessArguments([string[]]$Values) {
+    return (($Values | ForEach-Object {
+        if ($_ -match '[\s"]') { '"' + $_.Replace('"', '\"') + '"' } else { $_ }
+    }) -join ' ')
+}
+
 $projectRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
 $versionLine = Get-Content -LiteralPath (Join-Path $projectRoot "ProjectSettings\ProjectVersion.txt") |
     Where-Object { $_ -like "m_EditorVersion:*" } |
@@ -13,14 +20,14 @@ $unityVersion = ($versionLine -split ":", 2)[1].Trim()
 $unityExe = "C:\Program Files\Unity\Hub\Editor\$unityVersion\Editor\Unity.exe"
 
 if (-not (Test-Path -LiteralPath $unityExe)) {
-    throw "找不到專案指定的 Unity Editor：$unityExe"
+    throw "Unity Editor required by this project was not found: $unityExe"
 }
 
 $openEditor = Get-CimInstance Win32_Process -Filter "Name = 'Unity.exe'" |
     Where-Object { $_.CommandLine -and $_.CommandLine.IndexOf($projectRoot, [System.StringComparison]::OrdinalIgnoreCase) -ge 0 } |
     Select-Object -First 1
 if ($openEditor) {
-    throw "Dragame 正在 Unity PID $($openEditor.ProcessId) 開啟中。請先正常關閉編輯器再建置，腳本不會強制終止它。"
+    throw "Dragame is already open in Unity PID $($openEditor.ProcessId). Close the editor normally before building; this script will not terminate it."
 }
 
 if ([string]::IsNullOrWhiteSpace($OutputPath)) {
@@ -45,15 +52,15 @@ if ($Development) { $arguments += "-sweepDevelopmentBuild" }
 $startInfo = [System.Diagnostics.ProcessStartInfo]::new($unityExe)
 $startInfo.UseShellExecute = $false
 $startInfo.CreateNoWindow = $true
-foreach ($argument in $arguments) { $startInfo.ArgumentList.Add($argument) }
+$startInfo.Arguments = Join-ProcessArguments $arguments
 $unityProcess = [System.Diagnostics.Process]::Start($startInfo)
 $unityProcess.WaitForExit()
 $unityExitCode = $unityProcess.ExitCode
 if ($unityExitCode -ne 0) {
-    throw "Unity Windows 建置失敗（exit $unityExitCode）。詳見 $logPath"
+    throw "Unity Windows build failed (exit $unityExitCode). See $logPath"
 }
 if (-not (Test-Path -LiteralPath $OutputPath)) {
-    throw "Unity 回傳成功但找不到輸出：$OutputPath"
+    throw "Unity returned success but the build output is missing: $OutputPath"
 }
 
 $builtFile = Get-Item -LiteralPath $OutputPath
