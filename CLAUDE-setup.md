@@ -242,7 +242,8 @@ ProBuilder / VFX Graph：2D 專案用不到，不裝。Cinemachine：那顆按�
 3. **build 雜訊**（可直接還原，回報時列出）：
    - `manage_build` 會改 URP Pipeline Asset（例如 `Assets/Settings/*URP*.asset`）的 shader variant stripping 旗標。先 `git diff` 確認只有這類旗標，再 `git checkout -- <檔>`。
    - build 輸出裡的 `*_BurstDebugInformation_DoNotShip` 不要打包也不要進版控（Unity 自己標了 DoNotShip）。
-4. **換行符假 diff**：整份檔被標成修改但內容沒變時，跑 `git diff -w --ignore-cr-at-eol -- <檔>`，輸出空的就是只有 CRLF／LF 差異。不要當內容修改 commit，也不要為了消掉它整份重寫。
+4. **換行符假 diff**：整份檔被標成修改但內容沒變時，跑 `git diff --ignore-cr-at-eol -- <檔>`，輸出空的就是只有 CRLF／LF 差異。**不要加 `-w`**：它連縮排變化都忽略，而 `.unity`／`.meta`／`.asset` 是 YAML，縮排有意義。不要當內容修改 commit，也不要為了消掉它整份重寫。
+   - 批次檢查多個檔時逐行讀檔名（`git diff --name-only | while IFS= read -r f; do …; done`），不要寫 `for f in $(git diff --name-only)`：檔名有空格會被拆開，git 對拆壞的路徑回空，被誤判成「沒差異」。
    - 專案裡的 `.cs` 若是 CRLF 或帶 BOM，用腳本改字串前先正規化成 LF、寫回時還原原本的換行與 BOM，否則比對永遠 miss 或整檔翻。
 
 ### 截圖存放
