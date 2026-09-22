@@ -1,7 +1,7 @@
-# Unity 套件 / 場景 / 美術 / MCP 設定詳解（CLAUDE-setup.md）
+# Unity 套件 / 場景 / 美術 / MCP / Git 設定詳解（CLAUDE-setup.md）
 
-此檔**不自動載入**，平常不佔 context token。對應 `CLAUDE.md` 中標 `↳S` 的章節（十一套件、十二場景、十三美術、十四 MCP）。
-要裝套件、設場景、做美術、或動編輯器時才 Read 它。
+此檔**不自動載入**，平常不佔 context token。對應 `CLAUDE.md` 中標 `↳S` 的章節（十一套件、十二場景、十三美術、十四 MCP、十五 Git）。
+要裝套件、設場景、做美術、動編輯器、或 commit 前才 Read 它。
 
 凡「設數值、掛腳本、建 Prefab、改 import」這類寫進 `.unity/.prefab/.asset/.meta`（YAML）的動作，走 `CLAUDE.md` 三的雙軌：
 **有 MCP 連線**→ Claude 用編輯器 API 自己做完並驗證；**沒有 MCP** → Claude 列步驟、barry 在編輯器手動完成。
@@ -167,6 +167,32 @@
 - 只在 **HTTP transport** 模式作用；domain reload（改完 C# 重編譯）後由 bridge 的 reload handler 自動恢復。
 - **新機器／新環境**：把同層的 `McpAutoSetupOnce.cs` 丟進專案 `Assets/Editor/`，Unity 一編譯就生效——它會開 Auto-Start、順手裝 Roslyn、並立刻踢一次 auto-start（不用重開編輯器），結果寫到 `Temp/mcp_auto_setup_result.txt`。看到 `DONE` 就可以把腳本刪掉。內含 `SessionState` 防重跑。
 
+### 一鍵接線（新專案／舊專案都走這條）
+
+不要再手動照上面的步驟拼。同層的 `unity_auto.py` 把「補套件 → 裝守則 → 開 Unity → 驗證 bridge」串成一條，
+**驗不到 Unity 端回話就不會回報成功**（退出碼 3）。
+
+| 情境 | 指令 |
+|---|---|
+| 開舊專案（含從沒接過 MCP 的） | `python unity_auto.py open <專案名> --timeout 480` |
+| 開新專案 | `python unity_auto.py new <名稱> --2d --timeout 600` |
+| MCP 怪怪的、不知道哪一層壞 | `python unity_auto.py doctor` |
+| session 沒載入 MCP 工具但想確認狀態 | `python unity_auto.py verify --expect <專案名>` |
+
+- `verify` 直接對 `127.0.0.1:8080/mcp` 打 JSON-RPC，**不必重開 session** 就能知道三角色活到第幾層。
+- 專案版本不在這台機器上時腳本會停在退出碼 2，**不會**擅自用別的 Unity 版本開（那會改寫序列化資產）。
+- 開 Unity 用 `Win32_Process.Create`，不能用 `Start-Process`——agent shell 在 kill-on-close 的 job 裡，
+  子進程會被連坐殺掉、Unity 載到一半死掉。
+- Unity 已經開著、而套件是「開完之後」才加進 manifest 的：要等 Unity 取得焦點才會匯入。
+- **2D URP 一鍵建好**：`unity_auto.py new <名稱> --2d` 或 `open <專案> --2d` 會裝 URP、建
+  `Assets/Settings/Renderer2D.asset` ＋ `UniversalRP-2D.asset`、指到 Graphics／Quality、場景補 Global Light 2D。
+  🔴 `Renderer2DData` 裸建是空殼，**要呼叫 `Reset()`** 才會有預設 light blend styles；漏了的話白色 sprite
+  會渲染成青色。回報行有 `blendStyles=4` 才算成功。URP 只在 2D 專案做，3D 另外決定。
+- **Unity 開著但 8080 一直沒人聽**：多半是 `MCPForUnity.AutoStartOnLoad` 在編輯器行程記憶體裡是 False
+  （登錄檔寫 1 不算數，實測過兩邊不一致）。官方連線迴圈每輪重讀這顆 pref，False 就 return，
+  於是 server 起來了 bridge 不連——症狀是工具只有 30 個、少了 `execute_code`（正常 43 個）。
+  解法：`unity_auto.py open <專案> --kick`（會搶畫面，先問過再用），成功後腳本會把 pref 寫回編輯器。
+
 ### 工具對照（依任務挑，不用背全部）
 
 | 想做的事 | 用哪個 |
@@ -182,7 +208,7 @@
 | 建置 | `manage_build` |
 | 執行編輯器菜單項 | `execute_menu_item` |
 | 多個操作省 round-trip | `batch_execute` |
-| **截圖** | 沒有專用工具 → `execute_code` 跑 `ScreenCapture.CaptureScreenshot` |
+| **截圖** | `manage_camera` action=`screenshot`，帶 `output_folder="Temp/Screenshots"`（存放規則見第五節） |
 
 其餘（probuilder / vfx / physics / graphics…）用到再研究。
 
@@ -198,5 +224,35 @@ ProBuilder / VFX Graph：2D 專案用不到，不裝。Cinemachine：那顆按�
 - **`execute_code` 要帶 `action`**：新版（server 3.4.x）把它改成 `action` 必填，只給 `code` 會回 validation error。跑程式碼是 `action="execute"`，另有 `get_history` / `replay` / `clear_history`。
 - **Unity 沒 focus 不會刷新 Assets**：從外部塞檔（例如生完美術圖）後，要讓 Unity 拿到 focus 才會 import；必要時用視窗前景化喚它。
 - **會動的東西別亂升**：套件版本正常運作時，看到新版先不動。
-- 動場景前先確認**當前開的是哪個場景**，並先留 git 存檔點。
+- 動場景前先確認**當前開的是哪個場景**，並先留 git 存檔點（見第五節）。
 - 沒有連線時**不要宣稱驗證過**——半盲模式沒有 console 也沒有 Play Mode，照 `CLAUDE.md` 十之3 明講交回人類。
+- **後處理與 overlay Canvas UI 只在 Play Mode 截得到**；編輯模式拍出來沒有 UI 不代表 UI 壞了。
+
+---
+
+## 五、🌿 Git 版本控制（commit 前才讀）
+
+對應 `CLAUDE.md` 十五。這節是「怎麼做」；「為什麼直接授權本機 commit」在 `CLAUDE-rationale.md` 十五。
+
+### commit 前檢查清單
+1. **看全量狀態**：`git status --porcelain -uall`，**不要 `| head` 截斷**（曾把 59 項報成 8 項，差點讓人依錯的規模做決定）。要數量就全取再分類統計。
+2. **素材有沒有被忽略**：`git ls-files --others --ignored --exclude-standard -- Assets` 若列出 png／wav／mat／anim 等素材，就是 `.gitignore` 寫錯了。
+   - 警訊：status 只看到 `xxx.png.meta` 卻沒看到 `xxx.png` 本體 ＝ 本體被忽略，照樣 commit 的話換台電腦 clone 下來圖會是空的。
+   - 真實案例：舊版守則曾往 `.gitignore` 塞 `*.png`／`*.wav`／`*.mat`…（本意是不讓 AI 讀，用錯工具），害新圖新音效沒進版控。「AI 不讀」要用 `.claude/settings.json` 的 deny，不是 `.gitignore`。
+3. **build 雜訊**（可直接還原，回報時列出）：
+   - `manage_build` 會改 URP Pipeline Asset（例如 `Assets/Settings/*URP*.asset`）的 shader variant stripping 旗標。先 `git diff` 確認只有這類旗標，再 `git checkout -- <檔>`。
+   - build 輸出裡的 `*_BurstDebugInformation_DoNotShip` 不要打包也不要進版控（Unity 自己標了 DoNotShip）。
+4. **換行符假 diff**：整份檔被標成修改但內容沒變時，跑 `git diff -w --ignore-cr-at-eol -- <檔>`，輸出空的就是只有 CRLF／LF 差異。不要當內容修改 commit，也不要為了消掉它整份重寫。
+   - 專案裡的 `.cs` 若是 CRLF 或帶 BOM，用腳本改字串前先正規化成 LF、寫回時還原原本的換行與 BOM，否則比對永遠 miss 或整檔翻。
+
+### 截圖存放
+- MCP 的截圖工具**只接受專案內路徑**，寫到專案外會丟 `resolves outside the Unity project root`。所以流程是：拍進 `Temp/Screenshots`（不匯入、不進版控、Unity 關掉會清）→ 要留的用 shell 搬到 `%USERPROFILE%\Desktop\claude\unity截圖\<專案名>\`。
+- 沒帶 `output_folder` 會落到預設的 `Assets/Screenshots`：會被 Unity 當貼圖匯入、長出 `.meta`。範本 `.gitignore` 有兜底忽略這個資料夾，但看到了還是搬走。
+- 一勞永逸：Unity 連上時用 `execute_code` 跑一次 `UnityEditor.EditorPrefs.SetString("MCPForUnity_ScreenshotsFolder", "Temp/Screenshots");`。EditorPrefs 是每使用者共用，設一次這台機器所有專案的預設就改掉了。
+
+### 不用問的 vs 要問的
+- 不用問：本機 `add`／`commit`、`git diff`、`git log`、`git stash`／`git stash list`／`git stash pop`（收進去、拿出來都不會丟東西；`drop`／`clear` 才會）。
+- 要問：`push`、`rebase`、`commit --amend` 已推送的、force push、刪分支、`reset --hard`、`checkout -- <路徑>`／`restore`／`clean`（上面第 3 點的已知 build 雜訊除外）、`stash drop`／`stash clear`。
+- **硬擋**（`settings-deny.json`，Bash 與 PowerShell 各 15 條）：`git reset …--hard…`、`git clean …`、`git checkout -- .`／`git checkout .`／`git restore .`／`git restore -- .`、`git push …--force…`（含 `--force-with-lease`）／`-f`、`git branch -D …`、`git stash drop…`／`git stash clear…`，以及 `git -C <路徑>` 開頭的 reset／clean／force push。
+  - 2026-09-22 實測：以上寫法全被擋（含 `cd … && git reset --hard` 這種串接、`git reset HEAD --hard` 旗標在後、PowerShell 的 `Set-Location …; git stash clear`）；單檔 `git checkout -- b.txt`、一般 `git push origin <分支>`、`git stash list` 照常放行。
+  - 這是保險絲不是鐵牆：比對的是指令字串，換寫法（例如包進腳本檔）就漏。所以規則仍是「被擋就停、請人自己跑」，不是「找別的寫法」。

@@ -64,3 +64,8 @@ Thumbs.db
 /.vscode/
 *.csproj
 *.slnx
+
+# MCP 截圖的預設資料夾。規則是拍進 Temp/Screenshots 再搬到桌面（CLAUDE.md 十五之4），
+# 這兩行只是忘了帶 output_folder 時的兜底，不讓診斷圖進版控。
+/[Aa]ssets/[Ss]creenshots/
+/[Aa]ssets/[Ss]creenshots.meta

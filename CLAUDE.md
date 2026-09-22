@@ -1,7 +1,5 @@
 # Unity C# 專案 — Claude Code 架構規範（硬規則）
 
-> Dragame 專案定位：`Sweep` 是 45～60 秒展演用爽 Demo。先讀 `README.md` 與 `AGENTS.md`；優先確保操作、玩家得分因果、撞擊回饋、快速重置。此專案指定 Unity `6000.4.0f1`，不得換版本硬開。
-
 > 本檔只列「可執行硬規則」。每條的**理由/原理**放在同層 `CLAUDE-rationale.md`（不自動載入）；
 > 需要時用 Read 查，平常不佔 token。標 `↳R` 者表示 rationale 有對應說明。
 > 標 `↳S` 者表示 `CLAUDE-setup.md`（同樣不自動載入）有對應的套件／場景／美術／MCP 詳解，要做該類任務時才 Read。
@@ -109,12 +107,24 @@
 ## 十四、🔌 Unity MCP（有連線＝我能直接動編輯器）↳S
 1. **先探測，再動作**：要動編輯器之前先發一個唯讀呼叫（`read_console`）確認連線活著。工具看得到 ≠ bridge 連上；bridge 斷線時每個呼叫都會失敗。
 2. **開機順序**：先開 Unity（server 隨 Auto-Start 起來）→ 再開 AI session，MCP 才載入。順序反了就重連或重開 session，別在那邊硬試。
-3. **標準驗證循環（改完 C# 的三步）**：`read_console` 確認零編譯錯誤 → `manage_editor` 進 Play Mode 驗行為 → 視覺改動用 `execute_code` 跑 `ScreenCapture.CaptureScreenshot` 截圖比對。這就是十之3 在 Unity 的落地方式。
+3. **標準驗證循環（改完 C# 的三步）**：`read_console` 確認零編譯錯誤 → `manage_editor` 進 Play Mode 驗行為 → 視覺改動用 `manage_camera` 的 `screenshot` 截圖比對（存放位置見十五之4）。這就是十之3 在 Unity 的落地方式。
 4. **我能直接做**：場景／物件／元件／Prefab 操作、跑 Test Runner（`run_tests`）、執行菜單項、build。
    **仍然留給人**：Asset Store 匯入、帳號授權與平台簽章、任何不可逆的刪除——這幾件即使有連線也先問。
 5. **沒有 MCP＝半盲模式**：只能改 `.cs`，沒 console、沒 Play Mode、沒截圖。此時把驗證責任明確講清楚交回 barry，不要宣稱已驗證（見十之3）。
-6. 場景改動前先確認**當前開的是哪個場景**，別在錯的場景上動手；動之前存檔點（git commit）比事後救便宜。
+6. 場景改動前先確認**當前開的是哪個場景**，別在錯的場景上動手；動手前的存檔點照十五之1。
 > 三角色架構、Auto-Start 設定、工具清單、Roslyn 依賴、新機器一次性設定腳本、雷點見 `CLAUDE-setup.md` 第四節。
+
+## 十五、🌿 Git 版本控制 ↳R ↳S
+1. **本機 commit 已授權，不用問**。單人專案直接在目前分支 commit，不另開分支。時機：
+   - 動場景／Prefab、批量修改、改既有邏輯**之前**：先 commit 一個存檔點。
+   - `IMPLEMENTATION_PLAN.md` 每個階段**驗證通過後**。
+   - 收工前：`git status` 應該是乾淨的；刻意留著不 commit 的，回報時講原因。
+   訊息寫「做了什麼」，一次 commit 放一件事；還沒實機測過的在訊息裡註明。
+2. **要先問**：push、改寫已推送的歷史（`rebase`／`commit --amend`）、force push、刪分支、丟棄未 commit 的改動（`reset --hard`／`checkout -- <路徑>`／`restore`／`clean`）、刪除暫存（`stash drop`／`stash clear`）。
+   例外：自己這一輪 build 連帶產生的已知雜訊（清單見 `CLAUDE-setup.md` 第五節）可直接還原，回報時列出。
+   其中 `reset --hard`、`clean`、整棵 `checkout -- .`／`restore .`、force push、`branch -D`、`stash drop`／`stash clear` 已由 settings deny 硬擋（Bash 與 PowerShell 都擋）；被擋就停下來請人在終端機自己跑，不要換寫法繞過。
+3. **commit 前檢查**：`git status --porcelain -uall` 全量看、不准截斷；新素材（png/wav/mat/anim…）沒被 `.gitignore` 吃掉；只有換行符變化的檔案不當成內容修改。做法見 `CLAUDE-setup.md` 第五節。
+4. **截圖不進專案**：MCP 截圖一律帶 `output_folder="Temp/Screenshots"`（`Temp/` 不會被匯入、不進版控）；要留的搬到 `%USERPROFILE%\Desktop\claude\unity截圖\<專案名>\`。
 
 ---
 
