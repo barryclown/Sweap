@@ -65,9 +65,9 @@ public class AudioEmitter : MonoBehaviour
         AudioClip clip = GetClip(soundName);
         if (clip != null && AudioManager.Instance != null)
         {
-            if (Mathf.Approximately(pitch, 1f) && Mathf.Approximately(volume, 1f))
+            if (Mathf.Approximately(pitch, 1f))
             {
-                AudioManager.Instance.PlaySFX(clip);
+                AudioManager.Instance.PlaySFX(clip, volume);
             }
             else
             {
@@ -91,13 +91,16 @@ public class AudioEmitter : MonoBehaviour
             source.playOnAwake = false;
             source.loop = false;
             source.spatialBlend = 0f;
+            source.dopplerLevel = 0f;
+            source.priority = 72;
             _pitchedOneShotSources[index] = source;
         }
 
         source.Stop();
         source.clip = clip;
         source.pitch = Mathf.Clamp(pitch, 0.1f, 3f);
-        source.volume = Mathf.Clamp01(volume);
+        float mixGain = AudioManager.Instance != null ? AudioManager.Instance.SfxGain : 1f;
+        source.volume = Mathf.Clamp01(volume * mixGain);
         source.Play();
     }
 
@@ -117,6 +120,8 @@ public class AudioEmitter : MonoBehaviour
             localLoopSource.loop = true;
             localLoopSource.playOnAwake = false;
             localLoopSource.spatialBlend = 0f;
+            localLoopSource.dopplerLevel = 0f;
+            localLoopSource.priority = 80;
         }
 
         if (localLoopSource.clip != clip || !localLoopSource.isPlaying)
@@ -125,8 +130,9 @@ public class AudioEmitter : MonoBehaviour
             localLoopSource.Play();
         }
 
-        localLoopSource.pitch = pitch;
-        localLoopSource.volume = volume;
+        localLoopSource.pitch = Mathf.Clamp(pitch, 0.1f, 3f);
+        float mixGain = AudioManager.Instance != null ? AudioManager.Instance.SfxGain : 1f;
+        localLoopSource.volume = Mathf.Clamp01(volume * mixGain);
     }
 
     public void StopLocalLoop()

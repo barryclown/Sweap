@@ -28,6 +28,10 @@ public class PetAI : MonoBehaviour
     [SerializeField] private float wallPadding = 1.5f;
     [SerializeField] private float suckRadius = 6f;
     [SerializeField] private float suckForce = 20f;
+    [SerializeField, Range(0f, 1f), Tooltip("黑洞長大時吸取範圍跟隨體型的比例，避免最高級直接線性暴增")]
+    private float suckRadiusGrowthWeight = 0.62f;
+    [SerializeField, Range(0f, 1f), Tooltip("黑洞長大時吸力跟隨體型的比例")]
+    private float suckForceGrowthWeight = 0.4f;
     [SerializeField] private LayerMask trashLayer;
 
     [Header("=== 2. 飽腹嘔吐 (Vomit) ===")]
@@ -53,12 +57,16 @@ public class PetAI : MonoBehaviour
 
     public int CurrentLevel => currentLevel;
     public int CurrentMaxEatTier { get; private set; } = 1;
+    public float EffectiveSuckRadius => _effectiveSuckRadius;
+    public float EffectiveSuckForce => _effectiveSuckForce;
 
     private Rigidbody2D _rb;
     private float _stateTimer;
     private Vector2 _moveTarget;
     private ContactFilter2D _trashFilter;
-    private readonly Collider2D[] _suckResults = new Collider2D[16];
+    private readonly Collider2D[] _suckResults = new Collider2D[32];
+    private float _effectiveSuckRadius;
+    private float _effectiveSuckForce;
 
     private readonly HashSet<TrashType> _vomitTriggersSet = new HashSet<TrashType>();
     private readonly List<TrashType> _stomachContents = new List<TrashType>();
@@ -77,6 +85,9 @@ public class PetAI : MonoBehaviour
             useLayerMask = true,
             useTriggers = true
         };
+
+        _effectiveSuckRadius = suckRadius;
+        _effectiveSuckForce = suckForce;
 
         if (vomitTriggers != null)
         {
@@ -230,6 +241,10 @@ public class PetAI : MonoBehaviour
         var config = levelConfigs[currentLevel];
         transform.localScale = Vector3.one * config.scaleMultiplier;
         CurrentMaxEatTier = config.maxEatTier;
+        _effectiveSuckRadius = CalculateScaledAbility(
+            suckRadius, config.scaleMultiplier, suckRadiusGrowthWeight);
+        _effectiveSuckForce = CalculateScaledAbility(
+            suckForce, config.scaleMultiplier, suckForceGrowthWeight);
 
         if (petAnimator != null && config.animatorController != null)
         {
@@ -254,7 +269,7 @@ public class PetAI : MonoBehaviour
 
     private void PerformSuckingPhysics()
     {
-        int count = Physics2D.OverlapCircle(transform.position, suckRadius, _trashFilter, _suckResults);
+        int count = Physics2D.OverlapCircle(transform.position, _effectiveSuckRadius, _trashFilter, _suckResults);
 
         for (int i = 0; i < count; i++)
         {
@@ -262,12 +277,23 @@ public class PetAI : MonoBehaviour
             {
                 if (trash.IsAbsorbing || !CanEat(trash)) continue;
 
-                Vector2 dir = ((Vector2)transform.position - (Vector2)trash.transform.position).normalized;
-                trash.ApplyExternalForce(dir * suckForce);
+                Vector2 delta = (Vector2)transform.position - (Vector2)trash.transform.position;
+                float distance = delta.magnitude;
+                if (distance <= 0.001f) continue;
+
+                float proximity = 1f - Mathf.Clamp01(distance / Mathf.Max(0.01f, _effectiveSuckRadius));
+                float falloff = Mathf.Lerp(0.28f, 1f, proximity * proximity);
+                trash.ApplyExternalForce((delta / distance) * (_effectiveSuckForce * falloff));
 
                 // [重點註釋] 已移除此處直接呼叫 EatTrash 的邏輯，改由 BlackHoleObstacle 的 Trigger 統一接管吸入瞬間
             }
         }
+    }
+
+    public static float CalculateScaledAbility(float baseValue, float scaleMultiplier, float growthWeight)
+    {
+        float weightedScale = Mathf.Lerp(1f, Mathf.Max(0.01f, scaleMultiplier), Mathf.Clamp01(growthWeight));
+        return Mathf.Max(0f, baseValue) * weightedScale;
     }
 
     // [重點註釋] 開放權限：讓外部（BlackHoleObstacle）詢問大腦是否能吃
@@ -368,7 +394,8 @@ public class PetAI : MonoBehaviour
     private void OnDrawGizmosSelected()
     {
         Gizmos.color = new Color(1, 0, 0, 0.2f);
-        Gizmos.DrawWireSphere(transform.position, suckRadius);
+        float radius = Application.isPlaying && _effectiveSuckRadius > 0f ? _effectiveSuckRadius : suckRadius;
+        Gizmos.DrawWireSphere(transform.position, radius);
 
         if (currentState == PetState.Moving)
         {

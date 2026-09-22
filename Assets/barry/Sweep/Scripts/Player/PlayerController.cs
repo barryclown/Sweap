@@ -135,6 +135,7 @@ public class PlayerController : MonoBehaviour, IAbsorbable
     private Vector3 _baseCameraOffset;
     private Vector3 _baseScale;
     private float _baseMaxSpeed;
+    private float _baseBodyCollisionRadius;
     private float _baseSweepRadius;
     private Vector2 _baseSweepOffset;
     private float _baseWeight;
@@ -154,6 +155,11 @@ public class PlayerController : MonoBehaviour, IAbsorbable
     public Vector2 GetSweepCenter() => (Vector2)transform.position + sweepOffset;
     public bool CanBeAbsorbed => !isBeingAbsorbed && _absorbCooldown <= 0f;
     public float GetEffectiveSweepRadius() => sweepRadius * sweepForgivenessMultiplier;
+
+    public static float CalculateGrowthMultiplier(float petScaleMultiplier, float syncRatio)
+    {
+        return 1f + ((Mathf.Max(0.01f, petScaleMultiplier) - 1f) * Mathf.Clamp01(syncRatio));
+    }
 
     public Vector2 GetDynamicSweepCenter()
     {
@@ -254,6 +260,7 @@ public class PlayerController : MonoBehaviour, IAbsorbable
         _baseCameraOffset = cameraOffset;
         _baseScale = transform.localScale;
         _baseMaxSpeed = maxSpeed;
+        _baseBodyCollisionRadius = bodyCollisionRadius;
         _baseSweepRadius = sweepRadius;
         _baseSweepOffset = sweepOffset;
         _baseWeight = wieght;
@@ -314,10 +321,11 @@ public class PlayerController : MonoBehaviour, IAbsorbable
 
     private void HandlePetGrowth(float petScaleMultiplier)
     {
-        float actualMultiplier = 1f + ((petScaleMultiplier - 1f) * growthSyncRatio);
+        float actualMultiplier = CalculateGrowthMultiplier(petScaleMultiplier, growthSyncRatio);
         _targetScale = _baseScale * actualMultiplier;
         _targetCameraOffset = _baseCameraOffset * actualMultiplier;
         maxSpeed = _baseMaxSpeed * actualMultiplier;
+        bodyCollisionRadius = _baseBodyCollisionRadius * actualMultiplier;
         sweepRadius = _baseSweepRadius * actualMultiplier;
         sweepOffset = _baseSweepOffset * actualMultiplier;
         wieght = _baseWeight * actualMultiplier;

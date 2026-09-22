@@ -106,6 +106,8 @@ public class UIManager : MonoBehaviour
     private float _hitChainExpiresAt = float.NegativeInfinity;
     private int _demoPhase;
     private bool _isFrenzy;
+    private int _lastCooldownDisplaySeconds = -1;
+    private int _lastPetLevel = -1;
 
     private Image _teachImage;
     private Vector3 _originalScoreScale;
@@ -240,6 +242,10 @@ public class UIManager : MonoBehaviour
         UpdateTimerText();
         RefreshTrash(TrashCounter.Collected, TrashCounter.Total);
         _demoOverlay = DemoFeedbackOverlay.Attach(this, scoreText != null ? scoreText : timerText);
+        _demoOverlay?.SetPacing(0, false);
+        DemoWorldBurst.Prewarm();
+        AudioManager.Instance?.ResetDemoMix();
+        AudioManager.Instance?.SetDemoPhase(0, false);
 
         _cachedPlayerController = PlayerController.instance;
         if (_cachedPlayerController != null)
@@ -359,7 +365,7 @@ public class UIManager : MonoBehaviour
         }
 
         AddScore(awardedScore);
-        DemoWorldBurst.Play(worldPosition, playerAssisted);
+        DemoWorldBurst.Play(worldPosition, playerAssisted, playerAssisted ? _comboCount : 0, _isFrenzy);
         _demoOverlay?.ShowScoreBurst(awardedScore, playerAssisted, _comboCount, worldPosition);
     }
 
@@ -446,13 +452,19 @@ public class UIManager : MonoBehaviour
             _cachedPlayerController?.SetDemoIntensity(_demoPhase, _isFrenzy);
             string message = _demoPhase == 1 ? "HEAT UP!" : _demoPhase == 2 ? "FASTER!" : "MAXIMUM CHAOS!";
             _demoOverlay?.ShowPhase(message, new Color(1f, 0.75f, 0.12f));
+            _demoOverlay?.SetPacing(_demoPhase, _isFrenzy);
+            AudioManager.Instance?.SetDemoPhase(_demoPhase, _isFrenzy);
+            AudioManager.Instance?.PushMixMoment(DemoMixMoment.PhaseChange);
         }
 
         if (!_isFrenzy && remainingTime <= frenzyDuration)
         {
             _isFrenzy = true;
             _cachedPlayerController?.SetDemoIntensity(_demoPhase, true);
+            _demoOverlay?.SetPacing(_demoPhase, true);
             _demoOverlay?.ShowPhase("FINAL FEVER!", new Color(1f, 0.22f, 0.06f), true);
+            AudioManager.Instance?.SetDemoPhase(_demoPhase, true);
+            AudioManager.Instance?.PushMixMoment(DemoMixMoment.FinalFever);
         }
     }
 
@@ -469,6 +481,17 @@ public class UIManager : MonoBehaviour
     private void OnChargedSweepReleased(float holdTime, float charge01, Vector2 origin, Vector2 direction)
     {
         if (charge01 >= 0.98f) _demoOverlay?.ShowFullCharge();
+    }
+
+    internal void ShowPresentationCaptureClimax()
+    {
+        _demoPhase = 3;
+        _isFrenzy = true;
+        _cachedPlayerController?.SetDemoIntensity(_demoPhase, true);
+        _demoOverlay?.SetPacing(_demoPhase, true);
+        _demoOverlay?.ShowCombo(15, CalculateComboMultiplier(15, comboBonusPerStep, true, frenzyScoreMultiplier));
+        _demoOverlay?.ShowPhase("FINAL FEVER!", new Color(1f, 0.18f, 0.035f), true);
+        AudioManager.Instance?.SetDemoPhase(_demoPhase, true);
     }
 
     private IEnumerator ShowFirstRunHints()
@@ -509,17 +532,32 @@ public class UIManager : MonoBehaviour
             rightSkillCooldownText.gameObject.SetActive(isOnCooldown);
             if (isOnCooldown)
             {
-                rightSkillCooldownText.text = Mathf.CeilToInt(currentCooldown).ToString();
+                int displaySeconds = Mathf.CeilToInt(currentCooldown);
+                if (displaySeconds != _lastCooldownDisplaySeconds)
+                {
+                    _lastCooldownDisplaySeconds = displaySeconds;
+                    rightSkillCooldownText.text = displaySeconds.ToString();
+                }
             }
+            else _lastCooldownDisplaySeconds = -1;
         }
     }
 
     private void UpdateBlackHoleLevelUI(int petLevel)
     {
-        if (blackHoleLevelIcon == null || levelSprites == null || levelSprites.Length == 0) return;
+        if (blackHoleLevelIcon != null && levelSprites != null && levelSprites.Length > 0)
+        {
+            int safeIndex = Mathf.Clamp(petLevel, 0, levelSprites.Length - 1);
+            blackHoleLevelIcon.sprite = levelSprites[safeIndex];
+        }
 
-        int safeIndex = Mathf.Clamp(petLevel, 0, levelSprites.Length - 1);
-        blackHoleLevelIcon.sprite = levelSprites[safeIndex];
+        bool isRealUpgrade = _lastPetLevel >= 0 && petLevel > _lastPetLevel;
+        _lastPetLevel = petLevel;
+        if (!isRealUpgrade) return;
+
+        Color levelColor = new Color(0.78f, 0.28f, 1f);
+        _demoOverlay?.ShowPhase($"BLACK HOLE  LV.{petLevel + 1}", levelColor, true);
+        AudioManager.Instance?.PushMixMoment(DemoMixMoment.LevelUp);
     }
 
     private void OnPauseActionTriggered(InputAction.CallbackContext context)
@@ -669,6 +707,7 @@ public class UIManager : MonoBehaviour
             endPanel.SetActive(true);
             endPanel.transform.SetAsLastSibling();
         }
+        AudioManager.Instance?.SetResult(true);
         SetGameState(false);
 
         if (IsAutomatedSmokeRun)
@@ -683,6 +722,7 @@ public class UIManager : MonoBehaviour
     private void OnRestartGame()
     {
         Time.timeScale = 1f;
+        AudioManager.Instance?.ResetDemoMix();
         SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
     }
 
@@ -691,6 +731,7 @@ public class UIManager : MonoBehaviour
         Time.timeScale = 1f;
         // 離開場景時恢復系統原生游標
         Cursor.visible = true;
+        AudioManager.Instance?.ResetDemoMix();
         SceneManager.LoadScene("StartMenu");
     }
 
@@ -698,6 +739,7 @@ public class UIManager : MonoBehaviour
     {
         Time.timeScale = isPlayingGame ? 1f : 0f;
         if (PlayerController.instance != null) PlayerController.instance.enabled = isPlayingGame;
+        AudioManager.Instance?.SetPaused(!isPlayingGame);
 
         Cursor.lockState = CursorLockMode.None;
         // 若使用了自定義 UI 游標，則保持原生游標隱藏；反之才顯示原生游標

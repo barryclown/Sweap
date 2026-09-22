@@ -124,7 +124,8 @@ public class BlackHoleObstacle : BaseObstacle
     {
         if (audioEmitter != null && Time.time - _lastAbsorbTime > absorbCooldown)
         {
-            audioEmitter.PlayOneShot(absorbSound);
+            audioEmitter.PlayOneShot(absorbSound, 0.98f, 0.88f);
+            AudioManager.Instance?.PushMixMoment(DemoMixMoment.Absorb);
             _lastAbsorbTime = Time.time;
         }
     }

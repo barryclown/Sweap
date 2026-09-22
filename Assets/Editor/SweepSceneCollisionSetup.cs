@@ -16,6 +16,11 @@ public static class SweepSceneCollisionSetup
 {
     public const string SweepScenePath = "Assets/barry/Scenes/Sweep.unity";
     public const string BottomWallName = "BottomWallVisual";
+    public const string TopWallName = "TopWallVisual";
+    public const string LeftWallName = "LeftWallVisual";
+    public const string RightWallName = "RightWallVisual";
+    public const float ValidationAspect = 21f / 9f;
+    private const float WallCoverageMargin = 6f;
 
     private enum FootprintProfile
     {
@@ -150,6 +155,7 @@ public static class SweepSceneCollisionSetup
 
         CopyRendererSettings(top, target);
         RemoveUnexpectedColliders(wall);
+        EnsureMaximumGrowthWallCoverage(top, target, mainBoundary);
         EditorUtility.SetDirty(target);
         return wall;
     }
@@ -224,6 +230,8 @@ public static class SweepSceneCollisionSetup
             details.Add($"{BottomWallName}: local={wall.transform.localPosition}, " +
                         $"euler={wall.transform.localEulerAngles}, scale={wall.transform.localScale}");
         }
+
+        ValidateWallFamily(main, errors, details);
 
         valid = errors.Count == 0;
         string report = $"[SweepSceneCollisionSetup] {(valid ? "PASS" : "FAIL")}";
@@ -441,6 +449,202 @@ public static class SweepSceneCollisionSetup
         target.enabled = source.enabled;
     }
 
+    public static Vector2 CalculateRequiredWallCoverage(out float maximumGrowthScale)
+    {
+        WorldBounds2D mainBoundary = UnityEngine.Object.FindObjectsByType<WorldBounds2D>(
+                FindObjectsInactive.Include)
+            .FirstOrDefault(boundary => boundary != null && boundary.isMainWorldBoundary);
+        Camera camera = UnityEngine.Object.FindObjectsByType<Camera>(FindObjectsInactive.Include)
+            .FirstOrDefault(candidate => candidate != null && candidate.gameObject.scene == SceneManager.GetActiveScene());
+        PlayerController player = UnityEngine.Object.FindObjectsByType<PlayerController>(FindObjectsInactive.Include)
+            .FirstOrDefault(candidate => candidate != null && candidate.gameObject.scene == SceneManager.GetActiveScene());
+
+        if (mainBoundary == null || camera == null || player == null)
+            throw new InvalidOperationException("Main boundary, camera, or player is missing while calculating wall coverage.");
+
+        maximumGrowthScale = GetMaximumPetScale();
+        SerializedObject playerData = new SerializedObject(player);
+        SerializedProperty cameraOffsetProperty = playerData.FindProperty("cameraOffset");
+        SerializedProperty growthSyncProperty = playerData.FindProperty("growthSyncRatio");
+        Vector3 baseCameraOffset = cameraOffsetProperty != null
+            ? cameraOffsetProperty.vector3Value
+            : camera.transform.position - player.transform.position;
+        float growthSync = growthSyncProperty != null ? growthSyncProperty.floatValue : 1f;
+        float actualGrowth = PlayerController.CalculateGrowthMultiplier(maximumGrowthScale, growthSync);
+
+        Vector3 originalPosition = camera.transform.position;
+        float originalAspect = camera.aspect;
+        float groundZ = player.transform.position.z;
+        try
+        {
+            camera.transform.position = player.transform.position + (baseCameraOffset * actualGrowth);
+            camera.aspect = ValidationAspect;
+
+            Plane ground = new Plane(Vector3.forward, new Vector3(0f, 0f, groundZ));
+            float minX = float.PositiveInfinity;
+            float maxX = float.NegativeInfinity;
+            float minY = float.PositiveInfinity;
+            float maxY = float.NegativeInfinity;
+            Vector2[] corners =
+            {
+                new Vector2(0f, 0f), new Vector2(1f, 0f),
+                new Vector2(0f, 1f), new Vector2(1f, 1f)
+            };
+
+            for (int i = 0; i < corners.Length; i++)
+            {
+                Ray ray = camera.ViewportPointToRay(new Vector3(corners[i].x, corners[i].y, 0f));
+                if (!ground.Raycast(ray, out float enter))
+                    throw new InvalidOperationException("The maximum-growth camera does not intersect the 2.5D ground plane.");
+                Vector3 point = ray.GetPoint(enter);
+                minX = Mathf.Min(minX, point.x);
+                maxX = Mathf.Max(maxX, point.x);
+                minY = Mathf.Min(minY, point.y);
+                maxY = Mathf.Max(maxY, point.y);
+            }
+
+            Rect worldRect = mainBoundary.GetWorldRect();
+            return new Vector2(
+                worldRect.width + (maxX - minX) + WallCoverageMargin,
+                worldRect.height + (maxY - minY) + WallCoverageMargin);
+        }
+        finally
+        {
+            camera.transform.position = originalPosition;
+            camera.aspect = originalAspect;
+        }
+    }
+
+    private static void EnsureMaximumGrowthWallCoverage(
+        SpriteRenderer top,
+        SpriteRenderer bottom,
+        WorldBounds2D mainBoundary)
+    {
+        Vector2 required = CalculateRequiredWallCoverage(out float maxScale);
+        ResizeAlongLocalX(top, required.x);
+        ResizeAlongLocalX(bottom, required.x);
+
+        SpriteRenderer[] sideWalls = UnityEngine.Object.FindObjectsByType<SpriteRenderer>(
+                FindObjectsInactive.Include)
+            .Where(renderer => renderer != null && renderer.sprite == top.sprite &&
+                               renderer != top && renderer != bottom &&
+                               renderer.gameObject.scene == SceneManager.GetActiveScene())
+            .OrderBy(renderer => renderer.transform.position.x)
+            .ToArray();
+        for (int i = 0; i < sideWalls.Length; i++) ResizeAlongLocalX(sideWalls[i], required.y);
+
+        Debug.Log($"[SweepSceneCollisionSetup] Wall coverage maxPetScale={maxScale:0.##} " +
+                  $"required={required} boundary={mainBoundary.GetWorldRect()}");
+    }
+
+    private static void ResizeAlongLocalX(SpriteRenderer renderer, float requiredWorldLength)
+    {
+        if (renderer == null || renderer.sprite == null) return;
+        float parentScale = renderer.transform.parent != null
+            ? Mathf.Abs(renderer.transform.parent.lossyScale.x)
+            : 1f;
+        float unitLength = renderer.sprite.bounds.size.x * Mathf.Max(0.0001f, parentScale);
+        float requiredLocalX = requiredWorldLength / Mathf.Max(0.0001f, unitLength);
+        Vector3 scale = renderer.transform.localScale;
+        float sign = scale.x < 0f ? -1f : 1f;
+        scale.x = sign * Mathf.Max(Mathf.Abs(scale.x), requiredLocalX);
+        Undo.RecordObject(renderer.transform, "Cover maximum Sweep camera growth");
+        renderer.transform.localScale = scale;
+        EditorUtility.SetDirty(renderer.transform);
+    }
+
+    private static float GetMaximumPetScale()
+    {
+        PetAI pet = UnityEngine.Object.FindObjectsByType<PetAI>(FindObjectsInactive.Include)
+            .FirstOrDefault(candidate => candidate != null && candidate.gameObject.scene == SceneManager.GetActiveScene());
+        SerializedProperty levels = pet != null
+            ? new SerializedObject(pet).FindProperty("levelConfigs")
+            : null;
+        if (levels == null || !levels.isArray || levels.arraySize == 0)
+        {
+            GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(
+                SweepPresentationOptimizer.BlackHolePrefabPath);
+            PetAI prefabPet = prefab != null ? prefab.GetComponentInChildren<PetAI>(true) : null;
+            levels = prefabPet != null
+                ? new SerializedObject(prefabPet).FindProperty("levelConfigs")
+                : null;
+        }
+
+        float maximum = 1f;
+        if (levels == null || !levels.isArray) return maximum;
+        for (int i = 0; i < levels.arraySize; i++)
+        {
+            SerializedProperty scale = levels.GetArrayElementAtIndex(i).FindPropertyRelative("scaleMultiplier");
+            if (scale != null) maximum = Mathf.Max(maximum, scale.floatValue);
+        }
+        return maximum;
+    }
+
+    private static void ValidateWallFamily(
+        WorldBounds2D main,
+        ICollection<string> errors,
+        ICollection<string> details)
+    {
+        GameObject topObject = GameObject.Find(TopWallName);
+        GameObject bottomObject = GameObject.Find(BottomWallName);
+        GameObject leftObject = GameObject.Find(LeftWallName);
+        GameObject rightObject = GameObject.Find(RightWallName);
+        GameObject[] wallObjects = { topObject, bottomObject, leftObject, rightObject };
+        if (wallObjects.Any(item => item == null))
+        {
+            errors.Add("Expected Top/Bottom/Left/Right visual wall family is incomplete.");
+            return;
+        }
+
+        SpriteRenderer[] renderers = wallObjects.Select(item => item.GetComponent<SpriteRenderer>()).ToArray();
+        if (renderers.Any(renderer => renderer == null || renderer.sprite == null))
+        {
+            errors.Add("One or more visual walls have no SpriteRenderer or sprite.");
+            return;
+        }
+
+        SpriteRenderer reference = renderers[0];
+        for (int i = 1; i < renderers.Length; i++)
+        {
+            if (renderers[i].sprite != reference.sprite ||
+                renderers[i].sharedMaterial != reference.sharedMaterial ||
+                renderers[i].color != reference.color)
+            {
+                errors.Add($"{wallObjects[i].name} does not use the top wall's sprite/material/color.");
+            }
+        }
+
+        if (main == null) return;
+        Vector2 required;
+        float maxScale;
+        try
+        {
+            required = CalculateRequiredWallCoverage(out maxScale);
+        }
+        catch (Exception exception)
+        {
+            errors.Add($"Could not calculate maximum-growth wall coverage: {exception.Message}");
+            return;
+        }
+
+        float topLength = GetLocalXWorldLength(renderers[0]);
+        float bottomLength = GetLocalXWorldLength(renderers[1]);
+        float leftLength = GetLocalXWorldLength(renderers[2]);
+        float rightLength = GetLocalXWorldLength(renderers[3]);
+        if (topLength + 0.02f < required.x || bottomLength + 0.02f < required.x)
+            errors.Add($"Horizontal walls do not cover max-growth 21:9 view: required={required.x:F2}, top={topLength:F2}, bottom={bottomLength:F2}.");
+        if (leftLength + 0.02f < required.y || rightLength + 0.02f < required.y)
+            errors.Add($"Side walls do not cover max-growth 21:9 view: required={required.y:F2}, left={leftLength:F2}, right={rightLength:F2}.");
+
+        details.Add($"wallCoverage: maxPetScale={maxScale:F2} required={required} " +
+                    $"actual=({topLength:F2},{bottomLength:F2},{leftLength:F2},{rightLength:F2})");
+    }
+
+    private static float GetLocalXWorldLength(SpriteRenderer renderer)
+    {
+        return renderer.sprite.bounds.size.x * Mathf.Abs(renderer.transform.lossyScale.x);
+    }
+
     private static void RemoveUnexpectedColliders(GameObject wall)
     {
         Collider2D[] colliders = wall.GetComponents<Collider2D>();
@@ -459,12 +663,12 @@ public static class SweepSceneCollisionSetup
             .ToArray();
 
         SpriteRenderer top = walls.OrderByDescending(renderer => renderer.transform.position.y).FirstOrDefault();
-        if (top != null) Rename(top.gameObject, "TopWallVisual");
+        if (top != null) Rename(top.gameObject, TopWallName);
 
         SpriteRenderer[] sides = walls.Where(renderer => renderer != top)
             .OrderBy(renderer => renderer.transform.position.x).ToArray();
-        if (sides.Length > 0) Rename(sides[0].gameObject, "LeftWallVisual");
-        if (sides.Length > 1) Rename(sides[sides.Length - 1].gameObject, "RightWallVisual");
+        if (sides.Length > 0) Rename(sides[0].gameObject, LeftWallName);
+        if (sides.Length > 1) Rename(sides[sides.Length - 1].gameObject, RightWallName);
     }
 
     private static void Rename(GameObject gameObject, string name)

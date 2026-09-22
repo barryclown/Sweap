@@ -43,10 +43,13 @@
 
 ## 六、🏗️ 架構
 1. 跨領域系統用 `ServiceLocator.Get<T>()`（`Start()` 取），避免 `Instance` 單例。↳R
-2. 同實體組件相依：`Awake()` 用 `GetComponent<T>()`，禁 `GameObject.Find()`。
-3. 靜態數值強制 ScriptableObject，不寫死、不存 JSON。
+2. 同實體組件相依：`Awake()` 用 `GetComponent<T>()`；`GameObject.Find()` 只在沒有別的路時用，別放進 `Update`。
+3. 靜態數值預設放 ScriptableObject（型別安全、Inspector 可編、能引用資產），別散在各腳本寫死。↳R
+   要「在 Unity 外面改」或「Build 之後還能改」時（數值試調、企劃／玩家自訂），才加一層 JSON 覆寫：
+   覆寫層只覆蓋它有寫到的欄位，預設值仍留在 SO／Inspector，JSON 刪掉行為要回到原狀。
 4. 跨系統用 `event Action`（零 GC），`OnDestroy()` 必 `-=`。
-5. Inspector 變數禁 `public`，用 `[SerializeField] private` + 唯讀屬性。
+5. 新寫的 Inspector 變數用 `[SerializeField] private` + 唯讀屬性，比 `public` 好管。↳R
+   既有專案已經大量 `public` 就不必為這條發動全域重構，改到哪順手收哪個。
 
 ## 七、⚡ Hot Path 零 GC（`Update`/`FixedUpdate`/`LateUpdate`）
 1. 禁 `new`：清單/陣列在 `Awake()` 預配置並重用（`.Clear()`）。

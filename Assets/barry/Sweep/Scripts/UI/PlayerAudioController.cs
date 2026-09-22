@@ -73,8 +73,10 @@ public class PlayerAudioController : MonoBehaviour
     {
         if (player.CurrentSpeed > 0.1f && !player.isBeingAbsorbed && !player.isBlocking)
         {
-            float vol = Mathf.Clamp01(player.CurrentSpeed / player.maxSpeed);
-            emitter.PlayLocalLoop(moveLoopSound, 1f, vol);
+            float speed01 = Mathf.Clamp01(player.CurrentSpeed / Mathf.Max(0.01f, player.maxSpeed));
+            float vol = Mathf.Lerp(0.12f, 0.42f, speed01 * speed01);
+            float pitch = Mathf.Lerp(0.94f, 1.08f, speed01);
+            emitter.PlayLocalLoop(moveLoopSound, pitch, vol);
         }
         else if (emitter.IsPlayingLocalLoop(moveLoopSound))
         {
@@ -84,33 +86,35 @@ public class PlayerAudioController : MonoBehaviour
 
     private void HandleModeChanged(BroomMode mode)
     {
-        emitter.PlayOneShot(switchSkillSound);
+        emitter.PlayOneShot(switchSkillSound, mode == BroomMode.Impact ? 1.04f : 0.96f, 0.72f);
     }
 
     private void HandleLeftPress()
     {
-        emitter.PlayOneShot(leftPressSound);
+        emitter.PlayOneShot(leftPressSound, 1f, 0.68f);
     }
 
     private void HandleLeftRelease()
     {
-        emitter.PlayOneShot(leftReleaseSound);
+        emitter.PlayOneShot(leftReleaseSound, 1f, 0.78f);
     }
 
     private void HandleWallHit()
     {
-        emitter.PlayOneShot(wallHitSound);
+        emitter.PlayOneShot(wallHitSound, 0.93f, 0.86f);
+        AudioManager.Instance?.PushMixMoment(DemoMixMoment.WallImpact);
     }
 
     private void HandleRightPress()
     {
-        emitter.PlayLocalLoop(chargingSound, 0.8f);
+        emitter.PlayLocalLoop(chargingSound, 0.8f, 0.34f);
     }
 
     private void HandleChargeUpdate(float holdTime, float t, Vector2 origin, Vector2 dir)
     {
         float pitch = Mathf.Lerp(0.8f, 1.5f, t);
-        emitter.PlayLocalLoop(chargingSound, pitch);
+        float volume = Mathf.Lerp(0.34f, 0.62f, t * t);
+        emitter.PlayLocalLoop(chargingSound, pitch, volume);
     }
 
     private void HandleChargeRelease(float holdTime, float t, Vector2 origin, Vector2 dir)
@@ -119,7 +123,13 @@ public class PlayerAudioController : MonoBehaviour
         {
             emitter.StopLocalLoop();
         }
-        emitter.PlayOneShot(chargeShootSound, Mathf.Lerp(1f, 1.22f, t));
+        bool isFullCharge = t >= 0.98f;
+        emitter.PlayOneShot(
+            chargeShootSound,
+            Mathf.Lerp(1f, 1.22f, t),
+            isFullCharge ? 1f : Mathf.Lerp(0.78f, 0.94f, t));
+        AudioManager.Instance?.PushMixMoment(
+            isFullCharge ? DemoMixMoment.FullCharge : DemoMixMoment.ChargedRelease);
     }
 
     // [重點註釋] 高階材質混音邏輯：透過字典找出該材質上次播放的時間，進行獨立冷卻
@@ -141,7 +151,8 @@ public class PlayerAudioController : MonoBehaviour
                     : 1;
                 _lastAnyTrashHitTime = Time.unscaledTime;
                 float pitch = 0.94f + ((_hitPitchChain - 1) * 0.065f);
-                emitter.PlayOneShot(soundToPlay, pitch);
+                emitter.PlayOneShot(soundToPlay, pitch, Mathf.Lerp(0.72f, 0.9f, _hitPitchChain / 10f));
+                AudioManager.Instance?.PushMixMoment(DemoMixMoment.TrashImpact);
                 _hitCooldowns[type] = Time.time;
             }
         }

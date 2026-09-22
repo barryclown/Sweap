@@ -72,7 +72,7 @@ CircleCollider2D:
   m_CompositeOperation: 0
   m_CompositeOrder: 0
   m_Offset: {x: 0, y: 0.049820293}
-  m_Radius: 0.6829461
+  m_Radius: 1.12
 --- !u!114 &5754869622838171507
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -87,7 +87,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   initialScale: {x: 0, y: 0, z: 0}
   obstacleType: 0
-  absorbRadius: 1
+  absorbRadius: 1.12
   centerOffset: {x: 0, y: 0}
   maxAbsorbTier: 0
   trashAbsorbTime: 1
@@ -140,6 +140,8 @@ MonoBehaviour:
     m_PreInfinity: 2
     m_PostInfinity: 2
     m_RotationOrder: 4
+  passiveScoreMultiplier: 0.1
+  playerInfluenceWindow: 8
   playerAbsorbTime: 0.5
   playerVanishTime: 0.5
   playerEjectSpeed: 15
@@ -166,8 +168,10 @@ MonoBehaviour:
   maxWalkDistance: 12
   moveSpeed: 3
   wallPadding: 1.5
-  suckRadius: 1
-  suckForce: 10
+  suckRadius: 3.8
+  suckForce: 13
+  suckRadiusGrowthWeight: 0.62
+  suckForceGrowthWeight: 0.4
   trashLayer:
     serializedVersion: 2
     m_Bits: 256

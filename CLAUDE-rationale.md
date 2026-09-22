@@ -45,3 +45,35 @@ Unity 沒開或 bridge 斷線時，工具依然「看得到」，但每個呼叫
 
 ## 八之4、CancellationToken — 為什麼強制傳
 `async/await` 任務若在 GameObject 銷毀後還在跑，會存取已死物件 → NullReference 或詭異狀態。傳入 `destroyCancellationToken`（Unity 內建，物件銷毀時自動取消）讓任務在物件死掉時乾淨中止，避免「殭屍任務」。
+
+## 六之3、靜態數值 — 為什麼 ScriptableObject 是預設，JSON 是例外而不是禁令
+（這條原本寫「強制 ScriptableObject，不寫死、**不存 JSON**」。2026-09-09 改掉：那個「不存 JSON」是沒附理由的絕對禁令，而且跟〇分級自相矛盾——〇 說小品硬套全 ScriptableObject 收益小於成本，六.3 卻寫強制。）
+
+**ScriptableObject 適合當預設**：型別安全、Inspector 可編、能直接引用其他資產（Prefab／Sprite／AudioClip）、不必解析、改了會進版控 diff。這幾件事 JSON 做不到或做得比較差，所以「作者端的權威資料」放 SO 是對的。
+
+**SO 做不到的只有一件事，但那件事很重要**：Build 之後就烤死了。要讓不開 Unity 的人（企劃、測試、玩家、面試官）改數值，或想在遊戲執行中邊玩邊調，SO 幫不上忙。這時 JSON 覆寫層是正解——不是違反規則，是用對工具。
+
+**覆寫層的紀律**（照這個做才不會失控）：
+- 預設值留在 SO／Inspector／程式碼，JSON 只覆寫它「有寫到」的欄位。
+- 整份 JSON 刪掉，行為要能回到原狀——這既是驗收條件，也是不敢亂改時的退路。
+- 壞掉的 JSON 不該讓遊戲炸掉，退回預設並警告就好。
+
+### 實作紀錄：數值熱重載（VaniaCastle，2026-09-09）
+兩個踩過才知道的點：
+
+**① 兩種數值要走不同路徑，別想用同一招打完。**
+狀態機裡的 const（`dashSpeed`、`chaseSpeed`…）改成 `private static float chaseSpeed => GameTuning.Skeleton.chaseSpeed;`＝每幀直接讀，數值一換就跟著變，不必做任何推送。
+Inspector 型欄位（`jumpForce`、`maxHealth`、Boss 那一大包）沒辦法這樣寫，得在檔案變動時用 `ApplyToScene()` 主動推回元件。
+把這兩種混為一談的話，不是白寫一堆推送程式碼，就是改了 JSON 只有一半生效。
+
+**② `JsonUtility` 分不出「欄位不存在」和「欄位是 0」。**
+`FromJsonOverwrite` 對缺席欄位的行為是「保持原值」，聽起來正好，但你沒辦法問它「這個欄位到底有沒有出現過」。
+於是 `"jumpForce": 0` 和「JSON 根本沒寫 jumpForce」在程式眼中一模一樣——前者是企劃真的想把跳躍關掉，後者應該完全不要碰 Inspector。
+解法是預設值填哨兵（`float.NaN` / `int.MinValue`），用 `Has()` 判斷該不該覆寫；`JsonUtility` 不支援 nullable，這是最直白的替代。
+少了這一層，「JSON 沒寫的欄位不覆寫 Inspector」這個承諾就是假的，而那正是覆寫層敢用的前提。
+
+## 六之5、Inspector 變數 — 為什麼從「禁 public」改成「新寫的這樣寫」
+`[SerializeField] private` + 唯讀屬性確實比 `public` 好：外部改不到、封裝完整、重構安全。
+但寫成「禁 public」在既有專案裡是空話——VaniaCastle 實測 90 個 `public` 欄位對 47 個 `[SerializeField] private`，違反次數是遵守的兩倍。
+一條全專案都在違反的規則，實際效果不是讓程式變好，是讓 AI 每次讀到都想順手發動大重構，或乾脆學會忽略整份守則。
+所以改成「新寫的照這條、改到哪順手收哪個」——這是做得到的版本。
