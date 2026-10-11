@@ -42,6 +42,18 @@ public class BaseTrash : BasePoolItem, IAbsorbable
 
     [Header("Sticky 模式專用")]
     [SerializeField] private float stickSmoothTime = 0.05f;
+    [SerializeField, Tooltip("從遠處被吸過來時的平滑時間：看得到「被拉過去」，不是瞬移")]
+    private float magnetPullSmoothTime = 0.14f;
+    [SerializeField, Tooltip("吸附移動速度上限（世界單位／秒）")]
+    private float magnetMaxSpeed = 38f;
+    [SerializeField, Tooltip("鬆開吸附時保留的最大速度，避免平滑運算殘留的速度把垃圾甩飛")]
+    private float magnetReleaseMaxSpeed = 7f;
+    [SerializeField, Tooltip("被丟出後多久內不會再被吸回來（秒）")]
+    private float magnetRecaptureDelay = 0.6f;
+    private float _magnetImmuneUntil = float.NegativeInfinity;
+
+    /// <summary>可以被吸附：沒有被黑洞吸、也不在剛被丟出的保護時間內。</summary>
+    public bool CanBeMagnetized => !IsAbsorbing && Time.time >= _magnetImmuneUntil;
 
     [HideInInspector] public bool isDynamicSpawned = false;
 
@@ -170,9 +182,10 @@ public class BaseTrash : BasePoolItem, IAbsorbable
             SetCollidersEnabled(false);
         }
 
+        // 遠的時候慢一點（看得到被拉過去），貼近之後才緊跟；舊版遠距離反而更快，吸附像瞬移。
         Vector2 currentPos = _transform.position;
-        float actualSmoothTime = (currentPos - targetPosition).sqrMagnitude > 1f ? stickSmoothTime * 0.5f : stickSmoothTime;
-        Vector2 newPos = Vector2.SmoothDamp(currentPos, targetPosition, ref _stickVelocitySmooth, actualSmoothTime, Mathf.Infinity, Time.fixedDeltaTime);
+        float actualSmoothTime = (currentPos - targetPosition).sqrMagnitude > 0.36f ? magnetPullSmoothTime : stickSmoothTime;
+        Vector2 newPos = Vector2.SmoothDamp(currentPos, targetPosition, ref _stickVelocitySmooth, actualSmoothTime, magnetMaxSpeed, Time.fixedDeltaTime);
 
         HandleBoundaryCheck(ref newPos);
         _transform.position = newPos;
@@ -180,11 +193,35 @@ public class BaseTrash : BasePoolItem, IAbsorbable
 
     public void ReleaseMagnetHold()
     {
+        ReleaseMagnetHold(Vector2.ClampMagnitude(_stickVelocitySmooth, magnetReleaseMaxSpeed));
+    }
+
+    /// <summary>鬆開吸附並指定離手速度（例如沿用掃把當下的速度散開）。</summary>
+    public void ReleaseMagnetHold(Vector2 releaseVelocity)
+    {
         if (!_isStuck) return;
 
         _isStuck = false;
         SetCollidersEnabled(true);
-        currentVelocity = _stickVelocitySmooth;
+        currentVelocity = releaseVelocity;
+        _stickVelocitySmooth = Vector2.zero;
+        WakeUp();
+    }
+
+    /// <summary>
+    /// 吸附模式的蓄力丟出：力道公式與撞擊模式的蓄力橫掃相同（broomForce × power ÷ 重量），
+    /// 算玩家推動，進黑洞拿完整分數。
+    /// </summary>
+    public void ThrowFromMagnet(Vector2 direction, float power)
+    {
+        if (IsAbsorbing) return;
+        Vector2 dir = direction.sqrMagnitude > 0.0001f ? direction.normalized : Vector2.right;
+        ReleaseMagnetHold(Vector2.zero);
+        // 丟出去的瞬間還在吸附範圍內，沒有保護時間會在下一個物理幀被吸回刷頭。
+        _magnetImmuneUntil = Time.time + magnetRecaptureDelay;
+        MarkPlayerInfluence();
+        StartHitCooldownTimer();
+        ApplyImpulse(dir * (broomForce * power));
     }
 
     private void HandleMovement(ref Vector2 currentPos)

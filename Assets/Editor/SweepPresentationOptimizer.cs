@@ -44,10 +44,13 @@ public static class SweepPresentationOptimizer
         int fittedTrashPrefabs = SweepColliderAutoFit.AutoFitAllTrashPrefabs(false);
         OptimizeRenderPipeline();
         TuneBlackHolePrefab();
+        Sweep25DVisualSetup.ApplyPrefabs();
 
         EditorSceneManager.OpenScene(SweepSceneCollisionSetup.SweepScenePath, OpenSceneMode.Single);
         SweepSceneCollisionSetup.SetupSceneMenu();
         TuneSweepScene();
+        Sweep25DVisualSetup.ApplyToActiveScene();
+        SweepResultScreenSetup.ApplyToActiveScene();
 
         Scene scene = SceneManager.GetActiveScene();
         EditorSceneManager.MarkSceneDirty(scene);
@@ -86,6 +89,12 @@ public static class SweepPresentationOptimizer
         if (!trashCollidersValid) errors.Add(trashColliderReport);
 
         ValidateSceneTuning(errors, details);
+        string standingReport = Sweep25DVisualSetup.BuildValidationReport(out bool standingValid);
+        if (!standingValid) errors.Add(standingReport);
+        else details.Add(standingReport);
+        string resultReport = SweepResultScreenSetup.BuildValidationReport(out bool resultValid);
+        if (!resultValid) errors.Add(resultReport);
+        else details.Add(resultReport);
         ValidateBlackHolePrefab(errors, details);
         ValidateRenderPipeline(errors, details);
         ValidateImporters(errors, details);

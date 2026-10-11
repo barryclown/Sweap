@@ -58,7 +58,7 @@ public sealed class SweepCollisionIntegrityTests
     }
 
     [Test]
-    public void SweepScene_HasGroundFootprintsAndVisualOnlyBottomWall()
+    public void SweepScene_HasGroundFootprintsAndStanding2_5DRoom()
     {
         EditorSceneManager.OpenScene(SweepSceneCollisionSetup.SweepScenePath, OpenSceneMode.Single);
         string report = SweepSceneCollisionSetup.BuildValidationReport(out bool valid);
@@ -70,14 +70,47 @@ public sealed class SweepCollisionIntegrityTests
             boundary != null && !boundary.isMainWorldBoundary &&
             boundary.boundsType == WorldBounds2D.BoundsType.Obstacle).ToArray();
 
-        Assert.That(obstacles, Has.Length.EqualTo(10));
+        Assert.That(obstacles, Has.Length.EqualTo(SweepSceneCollisionSetup.ExpectedObstacleCount));
         Assert.That(obstacles.All(obstacle => obstacle.size.y <= 1.5f), Is.True);
 
-        GameObject bottom = GameObject.Find(SweepSceneCollisionSetup.BottomWallName);
-        Assert.That(bottom, Is.Not.Null);
-        Assert.That(bottom.GetComponent<SpriteRenderer>(), Is.Not.Null);
-        Assert.That(bottom.GetComponent<Collider2D>(), Is.Null,
-            "The existing world boundary already supplies the physical bottom edge.");
+        GameObject frame = GameObject.Find(SweepArenaPresentationFix.RoomFrameName);
+        Assert.That(frame, Is.Not.Null);
+        Assert.That(frame.GetComponent<SweepRoomFrame>(), Is.Not.Null, "Camera limits live on the room frame.");
+        Assert.That(frame.transform.childCount, Is.EqualTo(SweepArenaPresentationFix.FramePieceNames.Length));
+
+        // 後牆與左右牆立在地板上、畫在玩法物件下層；前牆是矮牆、畫在玩家上層。
+        foreach (string wallName in new[]
+                 {
+                     SweepSceneCollisionSetup.TopWallName,
+                     SweepSceneCollisionSetup.LeftWallName,
+                     SweepSceneCollisionSetup.RightWallName,
+                     SweepSceneCollisionSetup.BottomWallName
+                 })
+        {
+            Transform wall = frame.transform.Find(wallName);
+            Assert.That(wall, Is.Not.Null, wallName);
+            SpriteRenderer renderer = wall.GetComponent<SpriteRenderer>();
+            Assert.That(renderer, Is.Not.Null, wallName);
+            Assert.That(renderer.drawMode, Is.EqualTo(SpriteDrawMode.Tiled), wallName);
+            Assert.That(Vector3.Dot(wall.up, Vector3.back), Is.GreaterThan(0.999f), wallName + " must stand up (2.5D).");
+            Assert.That(renderer.bounds.size.z, Is.GreaterThan(1f), wallName + " must have visible height.");
+            Assert.That(wall.GetComponent<Collider2D>(), Is.Null,
+                "WorldBounds2D supplies the physical edge; frame pieces are visual-only.");
+        }
+
+        int playerOrder = UnityEngine.Object.FindAnyObjectByType<PlayerController>()
+            .GetComponentsInChildren<SpriteRenderer>(true).Max(renderer => renderer.sortingOrder);
+        Assert.That(frame.transform.Find(SweepSceneCollisionSetup.TopWallName).GetComponent<SpriteRenderer>().sortingOrder,
+            Is.LessThan(0), "Back wall stays behind every gameplay object.");
+        Assert.That(frame.transform.Find(SweepSceneCollisionSetup.BottomWallName).GetComponent<SpriteRenderer>().sortingOrder,
+            Is.GreaterThan(playerOrder), "Front wall covers the player, so the broom can never be drawn on top of it.");
+
+        // 前牆牆腳在玩法邊界外：牆高在 45 度鏡頭下遮住的地板深度不會碰到玩家能站的位置。
+        Rect play = WorldBounds2D.Instance != null ? WorldBounds2D.Instance.GetWorldRect()
+            : bounds.First(boundary => boundary.isMainWorldBoundary).GetWorldRect();
+        float frontLine = frame.GetComponent<SweepRoomFrame>().FrontWallLineY;
+        Assert.That(play.yMin - frontLine, Is.GreaterThanOrEqualTo(SweepArenaPresentationFix.FrontWallHeight),
+            "Front wall occlusion must stay outside the playable rectangle.");
     }
 
     [Test]

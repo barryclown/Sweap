@@ -15,6 +15,8 @@ public class UIManager : MonoBehaviour
         [Tooltip("達到此評級所需的最低分數")]
         public int minScore;
         public Sprite gradeSprite;
+        [Tooltip("結算時巫婆對話框說的話")]
+        public string line;
     }
 
     [Header("=== 調試設置 ===")]
@@ -86,6 +88,8 @@ public class UIManager : MonoBehaviour
     [Header("=== 結算評級 UI ===")]
     [SerializeField] private Image endGradeImage;
     [SerializeField] private GradeThreshold[] gradeSettings;
+    [SerializeField, Tooltip("結算畫面巫婆對話框的文字，依評級換台詞")]
+    private TMP_Text endDialogueText;
 
     [Header("=== 輸入綁定 ===")]
     [SerializeField] private InputAction pauseAction = new InputAction("Pause", binding: "<Keyboard>/escape");
@@ -109,6 +113,7 @@ public class UIManager : MonoBehaviour
     private int _lastCooldownDisplaySeconds = -1;
     private int _lastPetLevel = -1;
 
+    private Graphic _cursorGraphic;
     private Image _teachImage;
     private Vector3 _originalScoreScale;
     private Color _originalScoreColor;
@@ -310,6 +315,21 @@ public class UIManager : MonoBehaviour
         }
         UpdateDemoPacing();
         UpdateTimerText();
+    }
+
+    private void LateUpdate()
+    {
+        if (customCursorUI == null) return;
+
+        // Panels and runtime feedback reorder themselves during Update; keep the
+        // cursor last afterwards, including while the game is paused or ended.
+        Transform parent = customCursorUI.parent;
+        if (parent != null && customCursorUI.GetSiblingIndex() != parent.childCount - 1)
+            customCursorUI.SetAsLastSibling();
+
+        // A topmost software cursor must never intercept the buttons beneath it.
+        if (_cursorGraphic == null) _cursorGraphic = customCursorUI.GetComponent<Graphic>();
+        if (_cursorGraphic != null) _cursorGraphic.raycastTarget = false;
     }
 
     private void TriggerCursorClickAnim()
@@ -677,36 +697,7 @@ public class UIManager : MonoBehaviour
         pausePanel?.SetActive(false);
         teachPanel?.SetActive(false);
 
-        if (endScoreText != null) endScoreText.text = currentScore.ToString();
-
-        string finalGradeName = "None";
-        if (endGradeImage != null && gradeSettings != null && gradeSettings.Length > 0)
-        {
-            Sprite finalGrade = null;
-            int maxValidScore = -1;
-
-            for (int i = 0; i < gradeSettings.Length; i++)
-            {
-                if (currentScore >= gradeSettings[i].minScore && gradeSettings[i].minScore > maxValidScore)
-                {
-                    maxValidScore = gradeSettings[i].minScore;
-                    finalGrade = gradeSettings[i].gradeSprite;
-                }
-            }
-
-            endGradeImage.gameObject.SetActive(finalGrade != null);
-            if (finalGrade != null)
-            {
-                endGradeImage.sprite = finalGrade;
-                finalGradeName = finalGrade.name;
-            }
-        }
-
-        if (endPanel != null)
-        {
-            endPanel.SetActive(true);
-            endPanel.transform.SetAsLastSibling();
-        }
+        string finalGradeName = ApplyResult(currentScore);
         AudioManager.Instance?.SetResult(true);
         SetGameState(false);
 
@@ -717,6 +708,53 @@ public class UIManager : MonoBehaviour
                 $"duration={_activeGameDuration:0} reason={reason}");
             Application.Quit(0);
         }
+    }
+
+    /// <summary>挑出分數達到的最高評級；一個都沒達到回傳 -1。</summary>
+    public static int SelectGradeIndex(int score, GradeThreshold[] settings)
+    {
+        int best = -1;
+        if (settings == null) return best;
+        for (int i = 0; i < settings.Length; i++)
+        {
+            if (score < settings[i].minScore) continue;
+            if (best < 0 || settings[i].minScore > settings[best].minScore) best = i;
+        }
+        return best;
+    }
+
+    /// <summary>把分數、評級圖與台詞填進結算面板並顯示，回傳評級名稱（給自動測試的 log 用）。</summary>
+    private string ApplyResult(int score)
+    {
+        if (endScoreText != null) endScoreText.text = score.ToString();
+
+        int index = SelectGradeIndex(score, gradeSettings);
+        GradeThreshold? grade = index >= 0 ? gradeSettings[index] : (GradeThreshold?)null;
+        string gradeName = grade.HasValue && grade.Value.gradeSprite != null ? grade.Value.gradeSprite.name : "None";
+
+        if (endGradeImage != null)
+        {
+            bool hasSprite = grade.HasValue && grade.Value.gradeSprite != null;
+            endGradeImage.gameObject.SetActive(hasSprite);
+            if (hasSprite) endGradeImage.sprite = grade.Value.gradeSprite;
+        }
+        if (endDialogueText != null && grade.HasValue && !string.IsNullOrEmpty(grade.Value.line))
+            endDialogueText.text = grade.Value.line;
+
+        if (endPanel != null)
+        {
+            endPanel.SetActive(true);
+            endPanel.transform.SetAsLastSibling();
+        }
+        return gradeName;
+    }
+
+    /// <summary>只給離屏截圖驗證用：用指定分數顯示結算面板，不結束遊戲。</summary>
+    public string PreviewResultForCapture(int score)
+    {
+        pausePanel?.SetActive(false);
+        teachPanel?.SetActive(false);
+        return ApplyResult(score);
     }
 
     private void OnRestartGame()

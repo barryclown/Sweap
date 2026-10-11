@@ -11,6 +11,20 @@ public class SkillManager : MonoBehaviour
 
     [Header("=== Sticky Mode (磁鐵) ===")]
     [SerializeField, Tooltip("磁鐵模式下的判定範圍倍率")] private float magnetRadiusMultiplier = 1.2f;
+    [SerializeField, Tooltip("一次最多吸住幾個垃圾（避免整團疊成一顆、也避免重量把掃把拖到不能動）")]
+    private int maxCapturedTrash = 12;
+    [SerializeField, Tooltip("吸住的垃圾繞刷頭排開的內圈半徑（× 有效掃擊半徑）")]
+    private float clusterInnerRadius = 0.32f;
+    [SerializeField, Tooltip("每多一個垃圾往外擴的距離（× 有效掃擊半徑，依 √n 擴散）")]
+    private float clusterSpacing = 0.24f;
+    [SerializeField, Tooltip("整團繞刷頭旋轉的速度（度／秒）")]
+    private float clusterSpinDegrees = 55f;
+    [SerializeField, Tooltip("切回撞擊模式時，垃圾保留掃把速度的比例")]
+    private float releaseInheritVelocity = 0.85f;
+    [SerializeField, Tooltip("切回撞擊模式時，垃圾往外散開的速度")]
+    private float releaseScatterSpeed = 2.2f;
+    [SerializeField, Tooltip("蓄力丟出時每個垃圾的角度散佈（度）")]
+    private float throwSpreadDegrees = 16f;
 
     [Header("=== Charged Mode (右鍵蓄力) ===")]
     [SerializeField] private Transform chargedSweepRoot;
@@ -25,7 +39,10 @@ public class SkillManager : MonoBehaviour
     private readonly HashSet<BaseTrash> sweepHitTrash = new HashSet<BaseTrash>();
 
     private readonly HashSet<BaseTrash> capturedTrash = new HashSet<BaseTrash>();
+    // 依吸到的先後排序，每個垃圾有固定的位置（slot），不會全部擠到同一點。
+    private readonly List<BaseTrash> capturedOrder = new List<BaseTrash>(16);
     private readonly List<BaseTrash> trashToRemove = new List<BaseTrash>();
+    private float _clusterAngle;
     private readonly List<BaseTrash> nearbyTrashBuffer = new List<BaseTrash>();
 
     private PlayerController player;
@@ -125,7 +142,63 @@ public class SkillManager : MonoBehaviour
         }
 
         capturedTrash.Clear();
+        capturedOrder.Clear();
         player.SetStickyLoad(0f);
+    }
+
+    public int CapturedCount => capturedOrder.Count;
+    public int MaxCapturedTrash => maxCapturedTrash;
+
+    /// <summary>第 index 個吸住的垃圾相對刷頭的位置：黃金角螺旋排開，整團慢慢旋轉。</summary>
+    public static Vector2 GetClusterOffset(int index, float sweepRadius, float innerRadius, float spacing, float spinDegrees)
+    {
+        const float GoldenAngle = 137.50776f;
+        float radius = sweepRadius * (innerRadius + spacing * Mathf.Sqrt(index));
+        float angle = (spinDegrees + index * GoldenAngle) * Mathf.Deg2Rad;
+        return new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * radius;
+    }
+
+    /// <summary>把吸住的整團往 direction 丟出去，力道依蓄力 power01。回傳丟出幾個。</summary>
+    public int ThrowCapturedTrash(Vector2 direction, float power01)
+    {
+        if (capturedOrder.Count == 0) return 0;
+        Vector2 baseDir = direction.sqrMagnitude > 0.0001f ? direction.normalized : Vector2.right;
+        float curve = Mathf.Pow(Mathf.Clamp01(power01), chargedPowerExponent);
+        float forceMul = Mathf.Lerp(minForceMultiplier, maxForceMultiplier, curve);
+        int thrown = 0;
+        int count = capturedOrder.Count;
+        for (int i = 0; i < count; i++)
+        {
+            BaseTrash trash = capturedOrder[i];
+            if (trash == null || !trash.gameObject.activeInHierarchy || trash.IsAbsorbing) continue;
+            float spread = count > 1 ? Mathf.Lerp(-throwSpreadDegrees, throwSpreadDegrees, i / (count - 1f)) : 0f;
+            trash.ThrowFromMagnet(Rotate(baseDir, spread), forceMul);
+            thrown++;
+        }
+        capturedTrash.Clear();
+        capturedOrder.Clear();
+        player.SetStickyLoad(0f);
+        return thrown;
+    }
+
+    private static Vector2 Rotate(Vector2 v, float degrees)
+    {
+        float r = degrees * Mathf.Deg2Rad;
+        float c = Mathf.Cos(r), s = Mathf.Sin(r);
+        return new Vector2(v.x * c - v.y * s, v.x * s + v.y * c);
+    }
+
+    private Vector2 GetSlotTarget(Vector2 center, int index)
+    {
+        return center + GetClusterOffset(index, player.GetEffectiveSweepRadius(), clusterInnerRadius, clusterSpacing, _clusterAngle);
+    }
+
+    private bool TryCapture(BaseTrash trash, Vector2 center)
+    {
+        if (capturedOrder.Count >= maxCapturedTrash || !capturedTrash.Add(trash)) return false;
+        capturedOrder.Add(trash);
+        trash.ApplyMagnetHold(GetSlotTarget(center, capturedOrder.Count - 1), Vector2.zero);
+        return true;
     }
 
     private void HandleSweepMove(Vector2 center, float radius, Vector2 moveDir, float power01)
@@ -157,6 +230,7 @@ public class SkillManager : MonoBehaviour
     private void ScanForNewStickyTrash(Vector2 center)
     {
         nearbyTrashBuffer.Clear();
+        if (capturedOrder.Count >= maxCapturedTrash) return;
 
         // [重點註釋] 讓吸附半徑也繼承 PlayerController 的判定溢出容錯，解決靠牆吸不到的問題
         float catchRadius = player.GetEffectiveSweepRadius() * magnetRadiusMultiplier;
@@ -167,12 +241,11 @@ public class SkillManager : MonoBehaviour
         for (int i = 0; i < nearbyTrashBuffer.Count; i++)
         {
             var trash = nearbyTrashBuffer[i];
-            if (trash == null || trash.IsAbsorbing) continue;
+            if (trash == null || !trash.CanBeMagnetized) continue;
             if (capturedTrash.Contains(trash)) continue;
             if (((Vector2)trash.transform.position - center).sqrMagnitude <= sqrCatchRadius)
             {
-                capturedTrash.Add(trash);
-                trash.ApplyMagnetHold(center, Vector2.zero);
+                if (!TryCapture(trash, center)) break;
             }
         }
     }
@@ -188,20 +261,28 @@ public class SkillManager : MonoBehaviour
         }
 
         trashToRemove.Clear();
-        foreach (var trash in capturedTrash)
+        for (int i = 0; i < capturedOrder.Count; i++)
         {
+            BaseTrash trash = capturedOrder[i];
             if (trash == null || !trash.gameObject.activeInHierarchy || trash.IsAbsorbing)
-            {
                 trashToRemove.Add(trash);
-                continue;
-            }
-            trash.ApplyMagnetHold(center, velocity);
-            currentTotalWeight += trash.Weight;
         }
 
         if (trashToRemove.Count > 0)
         {
-            foreach (var t in trashToRemove) capturedTrash.Remove(t);
+            foreach (var t in trashToRemove)
+            {
+                capturedTrash.Remove(t);
+                capturedOrder.Remove(t);
+            }
+        }
+
+        _clusterAngle = Mathf.Repeat(_clusterAngle + clusterSpinDegrees * Time.fixedDeltaTime, 360f);
+        for (int i = 0; i < capturedOrder.Count; i++)
+        {
+            BaseTrash trash = capturedOrder[i];
+            trash.ApplyMagnetHold(GetSlotTarget(center, i), velocity);
+            currentTotalWeight += trash.Weight;
         }
 
         player.SetStickyLoad(currentTotalWeight);
@@ -209,11 +290,23 @@ public class SkillManager : MonoBehaviour
 
     private void ReleaseAllCapturedTrash()
     {
+        // 鬆開時順著掃把當下的速度帶出去，再往外輕輕散開；不沿用平滑運算的殘留速度。
+        Vector2 hostVelocity = player != null && player.rb != null ? player.rb.linearVelocity : Vector2.zero;
+        Vector2 center = player != null ? player.GetSweepCenter() : Vector2.zero;
+        for (int i = 0; i < capturedOrder.Count; i++)
+        {
+            BaseTrash trash = capturedOrder[i];
+            if (trash == null) continue;
+            Vector2 outward = (Vector2)trash.transform.position - center;
+            outward = outward.sqrMagnitude > 0.0001f ? outward.normalized : Vector2.zero;
+            trash.ReleaseMagnetHold(hostVelocity * releaseInheritVelocity + outward * releaseScatterSpeed);
+        }
         foreach (var trash in capturedTrash)
         {
             if (trash != null) trash.ReleaseMagnetHold();
         }
         capturedTrash.Clear();
+        capturedOrder.Clear();
         if (player != null) player.SetStickyLoad(0f);
     }
 
@@ -269,8 +362,11 @@ public class SkillManager : MonoBehaviour
         }
         else if (player.currentMode == BroomMode.Sticky)
         {
-            Vector2 sweepCenter = player.GetSweepCenter();
+            // 手上有垃圾：蓄力放開把整團往瞄準方向丟出去（可以丟進黑洞）。
+            if (ThrowCapturedTrash(dir, t) > 0) return;
 
+            // 手上沒東西：維持原本的蓄力範圍吸取。
+            Vector2 sweepCenter = player.GetSweepCenter();
             for (int i = 0; i < count; i++)
             {
                 var col = chargedSweepResults[i];
@@ -278,10 +374,8 @@ public class SkillManager : MonoBehaviour
 
                 if (col.TryGetComponent(out BaseTrash trash))
                 {
-                    if (trash == null || trash.IsAbsorbing || capturedTrash.Contains(trash)) continue;
-
-                    capturedTrash.Add(trash);
-                    trash.ApplyMagnetHold(sweepCenter, Vector2.zero);
+                    if (trash == null || !trash.CanBeMagnetized || capturedTrash.Contains(trash)) continue;
+                    if (!TryCapture(trash, sweepCenter)) break;
                 }
             }
         }

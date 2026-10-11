@@ -27,9 +27,9 @@
 指定版本是 Unity `6000.4.0f1`。共用 MCP 自動化入口：
 
 ```powershell
-python C:\Users\barry\Desktop\claude\unity-template\unity_auto.py prep C:\Fork\Dragame --autosetup
-python C:\Users\barry\Desktop\claude\unity-template\unity_auto.py open C:\Fork\Dragame --timeout 480
-python C:\Users\barry\Desktop\claude\unity-template\unity_auto.py verify --expect Dragame
+python "$env:USERPROFILE\Desktop\claude\unity-template\unity_auto.py" prep C:\Fork\Dragame --autosetup
+python "$env:USERPROFILE\Desktop\claude\unity-template\unity_auto.py" open C:\Fork\Dragame --timeout 480
+python "$env:USERPROFILE\Desktop\claude\unity-template\unity_auto.py" verify --expect Dragame
 ```
 
 `prep` 只改檔案、不搶前景；`open` 會開 Unity，Barry 正在工作時應先取得同意。驗收必須是 Unity 端 `execute_code` 真正回覆，不能只以 MCP 工具存在或 8080 有監聽當成功。

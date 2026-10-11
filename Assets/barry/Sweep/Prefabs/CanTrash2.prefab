@@ -10,6 +10,7 @@ GameObject:
   m_Component:
   - component: {fileID: 2540210539408767822}
   - component: {fileID: 3101747273124617423}
+  - component: {fileID: 5425676192011985844}
   m_Layer: 8
   m_Name: paperTrash
   m_TagString: trash
@@ -91,6 +92,35 @@ SpriteRenderer:
   m_SpriteTileMode: 0
   m_WasSpriteAssigned: 1
   m_SpriteSortPoint: 0
+--- !u!114 &5425676192011985844
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 299763310416663315}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ccd1d5a6fe367ac4db33c7fb15887d3c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Stand25D
+  anchor: 1
+  tiltDegrees: -50
+  visibleBaseLocal: {x: 0.013001412, y: -0.85290354}
+  visibleCenterLocal: {x: 0.013001412, y: -0.06981963}
+  visibleSizeLocal: {x: 1.0701146, y: 1.5661678}
+  followSpin: 1
+  isStatic: 0
+  overrideGroundY: 0
+  groundY: 0
+  hoverHeight: 0
+  bobAmplitude: 0
+  bobFrequency: 1.2
+  shadowSprite: {fileID: 21300000, guid: 8703126f1473b8942a1e817f7c8c3353, type: 3}
+  shadowWidth: 0.9
+  shadowDepth: 0.4
+  shadowAlpha: 0.5
+  depthBias: 0
 --- !u!1 &3684275660934303679
 GameObject:
   m_ObjectHideFlags: 0
@@ -237,6 +267,10 @@ MonoBehaviour:
   sleepSpeedThreshold: 0.2
   sleepTime: 0.5
   stickSmoothTime: 0.05
+  magnetPullSmoothTime: 0.14
+  magnetMaxSpeed: 38
+  magnetReleaseMaxSpeed: 7
+  magnetRecaptureDelay: 0.6
   isDynamicSpawned: 0
   _isStuck: 0
 --- !u!60 &6028322413618231034

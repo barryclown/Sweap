@@ -26,8 +26,8 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 7782435383531866832}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0.37033, w: 0.92890024}
-  m_LocalPosition: {x: 16.659796, y: 10.882103, z: 0}
+  m_LocalRotation: {x: 0, y: 0, z: 0.20158176, w: 0.9794717}
+  m_LocalPosition: {x: 55.562286, y: -26.430538, z: 0}
   m_LocalScale: {x: 0.26, y: 0.25999996, z: 0.25999996}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -4824,7 +4824,7 @@ ParticleSystemRenderer:
   m_GlobalIlluminationMeshLod: 0
   m_SortingLayerID: 0
   m_SortingLayer: 0
-  m_SortingOrder: 0
+  m_SortingOrder: 186
   m_MaskInteraction: 0
   m_RenderMode: 0
   m_MeshDistribution: 0

@@ -271,6 +271,7 @@ GameObject:
   - component: {fileID: 1998492646699218206}
   - component: {fileID: 5408054150003895564}
   - component: {fileID: 8882046433364214306}
+  - component: {fileID: 6261215410572751723}
   m_Layer: 7
   m_Name: balckHole
   m_TagString: blackHole
@@ -375,6 +376,35 @@ Animator:
   m_AllowConstantClipSamplingOptimization: 1
   m_KeepAnimatorStateOnDisable: 0
   m_WriteDefaultValuesOnDisable: 0
+--- !u!114 &6261215410572751723
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2883701614384982133}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ccd1d5a6fe367ac4db33c7fb15887d3c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Stand25D
+  anchor: 1
+  tiltDegrees: -50
+  visibleBaseLocal: {x: 0.0066666603, y: -0.47333333}
+  visibleCenterLocal: {x: 0.0066666603, y: 0.015000001}
+  visibleSizeLocal: {x: 1.3933333, y: 0.9766667}
+  followSpin: 0
+  isStatic: 0
+  overrideGroundY: 0
+  groundY: 0
+  hoverHeight: 0.21486667
+  bobAmplitude: 0.09766667
+  bobFrequency: 0.8
+  shadowSprite: {fileID: 0}
+  shadowWidth: 0
+  shadowDepth: 0
+  shadowAlpha: 0
+  depthBias: 0
 --- !u!1 &6350944767739300763
 GameObject:
   m_ObjectHideFlags: 0
@@ -454,7 +484,7 @@ SpriteRenderer:
   m_GlobalIlluminationMeshLod: 0
   m_SortingLayerID: 0
   m_SortingLayer: 0
-  m_SortingOrder: -1
+  m_SortingOrder: -80
   m_MaskInteraction: 0
   m_Sprite: {fileID: 21300000, guid: 6ae65f293c342264790649df7983646c, type: 3}
   m_Color: {r: 1, g: 1, b: 1, a: 1}

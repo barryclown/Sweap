@@ -161,6 +161,19 @@ public class PlayerController : MonoBehaviour, IAbsorbable
         return 1f + ((Mathf.Max(0.01f, petScaleMultiplier) - 1f) * Mathf.Clamp01(syncRatio));
     }
 
+    /// <summary>
+    /// 依 2.5D 房間外框夾住鏡頭：靠邊看得到牆、玩家永遠留在安全視窗內。
+    /// 場景沒有房間外框時不夾（維持原本自由跟隨）。
+    /// </summary>
+    public static Vector3 ClampCameraToRoom(Camera targetCamera, Vector3 desiredPosition, Vector3 playerPosition)
+    {
+        SweepRoomFrame frame = SweepRoomFrame.Instance;
+        WorldBounds2D mainBounds = WorldBounds2D.Instance;
+        if (targetCamera == null || frame == null || mainBounds == null) return desiredPosition;
+        return SweepRoomFrame.ClampCamera(
+            targetCamera, desiredPosition, playerPosition, frame.GetCameraLimits(mainBounds.GetWorldRect()));
+    }
+
     public Vector2 GetDynamicSweepCenter()
     {
         Vector2 baseCenter = GetSweepCenter();
@@ -540,8 +553,13 @@ public class PlayerController : MonoBehaviour, IAbsorbable
                 currentCameraBase, desiredPosition, ref _cameraFollowVelocity, cameraFollowSmoothTime);
         }
 
-        _lastCameraShakeOffset = GetCameraShakeOffset();
-        cam.transform.position = cameraBasePosition + _lastCameraShakeOffset;
+        cameraBasePosition = ClampCameraToRoom(cam, cameraBasePosition, transform.position);
+
+        Vector3 requestedShake = GetCameraShakeOffset();
+        Vector3 finalPosition = ClampCameraToRoom(cam, cameraBasePosition + requestedShake, transform.position);
+
+        _lastCameraShakeOffset = finalPosition - cameraBasePosition;
+        cam.transform.position = finalPosition;
     }
 
     private Vector3 GetCameraLookAheadTarget()

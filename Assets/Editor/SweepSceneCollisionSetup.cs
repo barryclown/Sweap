@@ -8,9 +8,8 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 
 /// <summary>
-/// Fits 2.5D ground-contact footprints in the Sweep scene and creates the missing
-/// visual bottom wall. The wall is visual-only because WorldBounds2D and the
-/// existing EdgeCollider2D already provide a physical bottom boundary.
+/// Fits 2.5D ground-contact footprints in the Sweep scene and keeps the arena's
+/// visual frame aligned with its logical WorldBounds2D containment rectangle.
 /// </summary>
 public static class SweepSceneCollisionSetup
 {
@@ -20,6 +19,7 @@ public static class SweepSceneCollisionSetup
     public const string LeftWallName = "LeftWallVisual";
     public const string RightWallName = "RightWallVisual";
     public const float ValidationAspect = 21f / 9f;
+    public const int ExpectedObstacleCount = 6;
     private const float WallCoverageMargin = 6f;
 
     private enum FootprintProfile
@@ -47,15 +47,14 @@ public static class SweepSceneCollisionSetup
     public static void SetupSceneMenu()
     {
         EnsureSweepSceneIsActive();
+        SweepArenaPresentationFix.ApplyToActiveScene();
         int fitted = AutoFitObstacleFootprints();
-        GameObject bottomWall = EnsureBottomWallVisual();
-        RenameExistingWallVisuals();
 
         Scene scene = SceneManager.GetActiveScene();
         EditorSceneManager.MarkSceneDirty(scene);
         EditorSceneManager.SaveScene(scene);
-        Debug.Log($"[SweepSceneCollisionSetup] Updated {fitted} obstacle footprints and " +
-                  $"verified {bottomWall.name}.\n{BuildValidationReport(out _)}");
+        Debug.Log($"[SweepSceneCollisionSetup] Updated {fitted} obstacle footprints and rebuilt " +
+                  $"the four-piece room frame.\n{BuildValidationReport(out _)}");
     }
 
     [MenuItem("Tools/Sweep Demo/Collision/Validate Scene Collision Setup")]
@@ -97,8 +96,9 @@ public static class SweepSceneCollisionSetup
             fitted++;
         }
 
-        if (fitted != 10)
-            throw new InvalidOperationException($"Expected 10 obstacle footprints, found {fitted}.");
+        if (fitted != ExpectedObstacleCount)
+            throw new InvalidOperationException(
+                $"Expected {ExpectedObstacleCount} obstacle footprints, found {fitted}.");
         return fitted;
     }
 
@@ -174,7 +174,8 @@ public static class SweepSceneCollisionSetup
             boundary != null && boundary.gameObject.scene == active && !boundary.isMainWorldBoundary &&
             boundary.boundsType == WorldBounds2D.BoundsType.Obstacle).ToArray();
 
-        if (obstacles.Length != 10) errors.Add($"Expected 10 obstacle bounds, found {obstacles.Length}.");
+        if (obstacles.Length != ExpectedObstacleCount)
+            errors.Add($"Expected {ExpectedObstacleCount} obstacle bounds, found {obstacles.Length}.");
         foreach (WorldBounds2D obstacle in obstacles)
         {
             if (obstacle.size.x <= 0f || obstacle.size.y <= 0f || obstacle.size.y > 1.5f)
@@ -212,26 +213,9 @@ public static class SweepSceneCollisionSetup
             details.Add($"{GetPath(obstacle.transform)}: rect={FormatRect(obstacle.GetWorldRect())}");
         }
 
-        GameObject wall = GameObject.Find(BottomWallName);
-        if (wall == null)
-        {
-            errors.Add($"{BottomWallName} is missing.");
-        }
-        else
-        {
-            SpriteRenderer renderer = wall.GetComponent<SpriteRenderer>();
-            if (renderer == null || renderer.sprite == null) errors.Add("Bottom wall has no sprite.");
-            if (wall.GetComponent<Collider2D>() != null) errors.Add("Bottom wall must remain visual-only.");
-            if (main != null && Mathf.Abs(wall.transform.position.y - main.Min.y) > 0.02f)
-                errors.Add($"Bottom wall y={wall.transform.position.y:F3} does not match boundary {main.Min.y:F3}.");
-            if (Quaternion.Angle(wall.transform.localRotation, Quaternion.Euler(90f, 0f, 0f)) > 0.1f)
-                errors.Add("Bottom wall is not mirrored to +90 degrees on X.");
-
-            details.Add($"{BottomWallName}: local={wall.transform.localPosition}, " +
-                        $"euler={wall.transform.localEulerAngles}, scale={wall.transform.localScale}");
-        }
-
-        ValidateWallFamily(main, errors, details);
+        string arenaReport = SweepArenaPresentationFix.BuildValidationReport(out bool arenaValid);
+        if (!arenaValid) errors.Add(arenaReport);
+        else details.Add(arenaReport);
 
         valid = errors.Count == 0;
         string report = $"[SweepSceneCollisionSetup] {(valid ? "PASS" : "FAIL")}";
